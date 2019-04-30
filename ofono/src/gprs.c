@@ -1458,7 +1458,7 @@ static DBusMessage *pri_set_message_proxy(struct pri_context *ctx,
 	if (strlen(proxy) > MAX_MESSAGE_PROXY_LENGTH)
 		return __ofono_error_invalid_format(msg);
 
-	if (ctx->message_proxy && g_str_equal(ctx->message_proxy, proxy))
+	if (g_str_equal(ctx->message_proxy, proxy))
 		return dbus_message_new_method_return(msg);
 
 	strcpy(ctx->message_proxy, proxy);
@@ -1487,7 +1487,7 @@ static DBusMessage *pri_set_message_center(struct pri_context *ctx,
 	if (strlen(center) > MAX_MESSAGE_CENTER_LENGTH)
 		return __ofono_error_invalid_format(msg);
 
-	if (ctx->message_center && g_str_equal(ctx->message_center, center))
+	if (g_str_equal(ctx->message_center, center))
 		return dbus_message_new_method_return(msg);
 
 	strcpy(ctx->message_center, center);

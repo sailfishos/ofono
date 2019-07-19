@@ -404,6 +404,7 @@ builtin_sources += drivers/atmodem/atutil.h \
 			drivers/ubloxmodem/ubloxmodem.h \
 			drivers/ubloxmodem/ubloxmodem.c \
 			drivers/ubloxmodem/gprs-context.c \
+			drivers/ubloxmodem/network-registration.c \
 			drivers/ubloxmodem/netmon.c \
 			drivers/ubloxmodem/lte.c
 

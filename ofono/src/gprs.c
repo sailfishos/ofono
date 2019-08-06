@@ -305,6 +305,8 @@ static gboolean assign_context(struct pri_context *ctx, int use_cid)
 		return TRUE;
 	}
 
+	ctx->context.cid = 0;
+
 	return FALSE;
 }
 

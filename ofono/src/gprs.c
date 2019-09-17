@@ -1898,6 +1898,27 @@ static gboolean have_active_contexts(struct ofono_gprs *gprs)
 	return FALSE;
 }
 
+static gboolean have_detachable_active_contexts(struct ofono_gprs *gprs)
+{
+	GSList *l;
+
+	for (l = gprs->contexts; l; l = l->next) {
+		struct pri_context *ctx;
+		struct ofono_gprs_context *gc;
+
+		ctx = l->data;
+		gc = ctx->context_driver;
+
+		if (!gc || !gc->driver->detach_shutdown)
+			continue;
+
+		if (ctx->active == TRUE)
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
 #ifdef SAILFISH_OS
 static bool have_read_settings(struct ofono_gprs *gprs)
 {
@@ -1927,7 +1948,7 @@ static void pri_context_signal_active(struct pri_context *ctx)
 					"Active", DBUS_TYPE_BOOLEAN, &value);
 }
 
-static void release_active_contexts(struct ofono_gprs *gprs)
+static void detach_active_contexts(struct ofono_gprs *gprs)
 {
 	GSList *l;
 	struct pri_context *ctx;
@@ -1956,6 +1977,15 @@ static void release_active_contexts(struct ofono_gprs *gprs)
 	}
 }
 
+static gboolean on_lte(struct ofono_gprs *gprs)
+{
+	if (ofono_netreg_get_technology(gprs->netreg) ==
+			ACCESS_TECHNOLOGY_EUTRAN && have_read_settings(gprs))
+		return TRUE;
+
+	return FALSE;
+}
+
 static void gprs_set_attached(struct ofono_gprs *gprs, ofono_bool_t attached)
 {
 	if (attached == gprs->attached)
@@ -1966,20 +1996,26 @@ static void gprs_set_attached(struct ofono_gprs *gprs, ofono_bool_t attached)
 	 * at driver level. "Attached" = TRUE property can't be signalled to
 	 * the applications registered on GPRS properties.
 	 * Active contexts have to be release at driver level.
+	 *
+	 * Skip that for LTE since the condition to be attached on LTE
+	 * is that a context gets activated
 	 */
-	if (attached == FALSE) {
-		release_active_contexts(gprs);
-		gprs->bearer = -1;
-	} else if (have_active_contexts(gprs) == TRUE) {
-		/*
-		 * Some times the context activates after a detach event and
-		 * right before an attach. We close it to avoid unexpected open
-		 * contexts.
-		 */
-		release_active_contexts(gprs);
-		gprs->flags |= GPRS_FLAG_ATTACHED_UPDATE;
-		return;
+	if (have_detachable_active_contexts(gprs) && !on_lte(gprs)) {
+		detach_active_contexts(gprs);
+
+		if (attached == TRUE) {
+			/*
+			 * Some times the context activates after a detach event
+			 * and right before an attach. We close it to avoid
+			 * unexpected open contexts.
+			 */
+			gprs->flags |= GPRS_FLAG_ATTACHED_UPDATE;
+			return;
+		}
 	}
+
+	if (attached == FALSE)
+		gprs->bearer = -1;
 
 	gprs_set_attached_property(gprs, attached);
 }
@@ -2063,15 +2099,6 @@ static void gprs_netreg_removed(struct ofono_gprs *gprs)
 	gprs->driver_attached = FALSE;
 
 	gprs_attached_update(gprs);
-}
-
-static gboolean on_lte(struct ofono_gprs *gprs)
-{
-	if (ofono_netreg_get_technology(gprs->netreg) ==
-			ACCESS_TECHNOLOGY_EUTRAN && have_read_settings(gprs))
-		return TRUE;
-
-	return FALSE;
 }
 
 static void gprs_netreg_update(struct ofono_gprs *gprs)

@@ -3277,6 +3277,7 @@ static void gprs_context_remove(struct ofono_atom *atom)
 	if (gc->gprs)
 		__ofono_gprs_filter_chain_cancel(gc->gprs->filters, gc);
 
+	g_free(gc->interface);
 	g_free(gc);
 }
 

@@ -2129,13 +2129,19 @@ static void gprs_netreg_update(struct ofono_gprs *gprs)
 	 * context activation if Attached stays FALSE.
 	 */
 #ifdef SAILFISH_OS
-	if (on_lte(gprs))
+	if (on_lte(gprs)) {
 		/*
 		 * For LTE we set attached status only on successful
 		 * context activation.
+		 *
+		 * The context could potentially be registered before the
+		 * netreg update is received.
 		 */
                 return;
 #endif
+		gprs_attached_update(gprs);
+		return;
+	}
 
 	if (gprs->driver_attached == attach)
 		return;

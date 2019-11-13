@@ -329,20 +329,11 @@ void __ofono_log_enable(struct ofono_debug_desc *start,
 					struct ofono_debug_desc *stop)
 {
 	struct ofono_debug_desc *desc;
-	const char *name = NULL, *file = NULL;
 
 	if (start == NULL || stop == NULL)
 		return;
 
 	for (desc = start; desc < stop; desc++) {
-		if (file != NULL || name != NULL) {
-			if (g_strcmp0(desc->file, file) == 0) {
-				if (desc->name == NULL)
-					desc->name = name;
-			} else
-				file = NULL;
-		}
-
 		if (is_enabled(desc) &&
 				!(desc->flags & OFONO_DEBUG_FLAG_PRINT)) {
 			desc->flags |= OFONO_DEBUG_FLAG_PRINT;

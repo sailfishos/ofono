@@ -29,6 +29,7 @@
 #include <glib.h>
 #include <ofono.h>
 #include <simutil.h>
+#include <stdbool.h>
 
 #define OFONO_API_SUBJECT_TO_CHANGE
 #include <ofono/plugin.h>
@@ -52,6 +53,7 @@ struct allowed_apns_ctx {
 	struct ofono_sim_context *sim_context;
 	DBusMessage *pending;
 	DBusMessage *reply;
+	bool registered;
 };
 
 static void context_destroy(gpointer data)
@@ -162,6 +164,9 @@ static void sim_state_watch(enum ofono_sim_state new_state, void *data)
 	DBusConnection *conn = ofono_dbus_get_connection();
 
 	if (new_state != OFONO_SIM_STATE_READY) {
+		if (!ctx->registered)
+			return;
+
 		g_dbus_unregister_interface(conn,
 				ofono_modem_get_path(ctx->modem),
 				ALLOWED_ACCESS_POINTS_INTERFACE);
@@ -169,6 +174,7 @@ static void sim_state_watch(enum ofono_sim_state new_state, void *data)
 		ofono_modem_remove_interface(ctx->modem,
 				ALLOWED_ACCESS_POINTS_INTERFACE);
 
+		ctx->registered = false;
 		return;
 	}
 
@@ -183,6 +189,7 @@ static void sim_state_watch(enum ofono_sim_state new_state, void *data)
 		return;
 	}
 
+	ctx->registered = true;
 	ofono_modem_add_interface(ctx->modem,
 			ALLOWED_ACCESS_POINTS_INTERFACE);
 }

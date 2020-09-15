@@ -542,6 +542,9 @@ builtin_sources += plugins/connman.c
 builtin_modules += mnclength
 builtin_sources += plugins/mnclength.c
 
+builtin_modules += droid
+builtin_sources += plugins/droid.c
+
 if BLUETOOTH
 if BLUEZ4
 builtin_modules += sap

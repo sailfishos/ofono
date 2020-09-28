@@ -721,7 +721,7 @@ const char *registration_tech_to_string(enum ofono_access_technology tech)
 gboolean is_valid_apn(const char *apn)
 {
 	int i;
-	int last_period = 0;
+	int last_period = -1;
 
 	if (apn == NULL)
 		return FALSE;

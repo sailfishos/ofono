@@ -1782,10 +1782,10 @@ static int set_modem_property(struct ofono_modem *modem, const char *name,
 		property->value = g_strdup((const char *) value);
 		break;
 	case PROPERTY_TYPE_INTEGER:
-		property->value = g_memdup(value, sizeof(int));
+		property->value = g_memdup2(value, sizeof(int));
 		break;
 	case PROPERTY_TYPE_BOOLEAN:
-		property->value = g_memdup(value, sizeof(ofono_bool_t));
+		property->value = g_memdup2(value, sizeof(ofono_bool_t));
 		break;
 	default:
 		break;

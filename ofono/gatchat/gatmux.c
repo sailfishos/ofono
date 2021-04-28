@@ -908,7 +908,7 @@ static void mux_query_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	} else
 		goto error;
 
-	nmsd = g_memdup(msd, sizeof(struct mux_setup_data));
+	nmsd = g_memdup2(msd, sizeof(struct mux_setup_data));
 	g_at_chat_ref(nmsd->chat);
 
 	if (speed < 0)

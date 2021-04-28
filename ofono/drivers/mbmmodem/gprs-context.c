@@ -345,7 +345,7 @@ static void mbm_cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 		return;
 	}
 
-	ncbd = g_memdup(cbd, sizeof(struct cb_data));
+	ncbd = g_memdup2(cbd, sizeof(struct cb_data));
 
 	snprintf(buf, sizeof(buf), "AT*ENAP=1,%u", gcd->active_context);
 

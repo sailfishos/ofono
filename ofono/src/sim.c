@@ -1296,7 +1296,7 @@ static void sim_iidf_read_cb(int ok, int length, int record,
 		clut_len = data[3] * 3;
 
 	iidf_id = efimg[3] << 8 | efimg[4];
-	sim->iidf_image = g_memdup(data, length);
+	sim->iidf_image = g_memdup2(data, length);
 
 	/* The path it the same between 2G and 3G */
 	path_len = sim_ef_db_get_path_3g(SIM_EFIMG_FILEID, path);
@@ -2059,7 +2059,7 @@ static void sim_efsst_read_cb(int ok, int length, int record,
 		goto out;
 	}
 
-	sim->efsst = g_memdup(data, length);
+	sim->efsst = g_memdup2(data, length);
 	sim->efsst_length = length;
 
 	/*
@@ -2098,7 +2098,7 @@ static void sim_efest_read_cb(int ok, int length, int record,
 		goto out;
 	}
 
-	sim->efest = g_memdup(data, length);
+	sim->efest = g_memdup2(data, length);
 	sim->efest_length = length;
 
 	/*
@@ -2142,7 +2142,7 @@ static void sim_efust_read_cb(int ok, int length, int record,
 		goto out;
 	}
 
-	sim->efust = g_memdup(data, length);
+	sim->efust = g_memdup2(data, length);
 	sim->efust_length = length;
 
 	/*
@@ -2289,7 +2289,7 @@ static void sim_efli_read_cb(int ok, int length, int record,
 	if (!ok)
 		return;
 
-	sim->efli = g_memdup(data, length);
+	sim->efli = g_memdup2(data, length);
 	sim->efli_length = length;
 }
 

@@ -729,7 +729,7 @@ static gboolean update_operator_list(struct ofono_netreg *netreg, int total,
 			/* New operator */
 			struct network_operator_data *opd;
 
-			opd = g_memdup(copd,
+			opd = g_memdup2(copd,
 					sizeof(struct network_operator_data));
 
 			if (!network_operator_dbus_register(netreg, opd)) {

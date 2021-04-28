@@ -2810,7 +2810,7 @@ static void sr_assembly_load_backup(GHashTable *assembly_table,
 	}
 
 	/* Node ready, create key and add them to the table */
-	id_table_key = g_memdup(msgid, SMS_MSGID_LEN);
+	id_table_key = g_memdup2(msgid, SMS_MSGID_LEN);
 
 	g_hash_table_insert(id_table, id_table_key, node);
 }
@@ -3125,7 +3125,7 @@ void status_report_assembly_add_fragment(
 
 	/* Create node in the message id hashtable if required */
 	if (node == NULL) {
-		id_table_key = g_memdup(msgid, SMS_MSGID_LEN);
+		id_table_key = g_memdup2(msgid, SMS_MSGID_LEN);
 
 		node = g_new0(struct id_table_node, 1);
 		node->total_mrs = total_mrs;
@@ -3236,7 +3236,7 @@ static GSList *sms_tx_load(const char *imsi, const struct dirent *dir)
 		if (sms_deserialize_outgoing(buf, &s, r) == FALSE)
 			goto free_pdu;
 
-		list = g_slist_prepend(list, g_memdup(&s, sizeof(s)));
+		list = g_slist_prepend(list, g_memdup2(&s, sizeof(s)));
 
 free_pdu:
 		g_free(pdus[len]);

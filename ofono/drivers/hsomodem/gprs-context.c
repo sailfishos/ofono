@@ -128,7 +128,7 @@ static void hso_cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 		return;
 	}
 
-	ncbd = g_memdup(cbd, sizeof(struct cb_data));
+	ncbd = g_memdup2(cbd, sizeof(struct cb_data));
 
 	snprintf(buf, sizeof(buf), "AT_OWANCALL=%u,1,1", gcd->active_context);
 

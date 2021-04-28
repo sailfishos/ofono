@@ -259,7 +259,7 @@ static void ste_cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	snprintf(buf, sizeof(buf), "AT*EPPSD=1,%x,%u",
 			gcd->channel_id, gcd->active_context);
 
-	ncbd = g_memdup(cbd, sizeof(struct cb_data));
+	ncbd = g_memdup2(cbd, sizeof(struct cb_data));
 
 	if (g_at_chat_send(gcd->chat, buf, NULL,
 				ste_eppsd_up_cb, ncbd, g_free) > 0)

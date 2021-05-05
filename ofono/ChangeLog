@@ -1,3 +1,9 @@
+ver 1.32:
+	Fix issue with handling of IMS private identity validation.
+	Fix issue with handling of SIM EF structure bit processing.
+	Fix issue with handling removal of Huawai modems.
+	Add support for USSD indication with QMI modems.
+
 ver 1.31:
 	Fix issue with handling CID 0 context identifier.
 	Fix issue with handling detach state and running LTE.

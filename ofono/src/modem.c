@@ -32,8 +32,8 @@
 #include <gdbus.h>
 
 #include "ofono.h"
-
 #include "common.h"
+#include "missing.h"
 
 #define DEFAULT_POWERED_TIMEOUT (20)
 

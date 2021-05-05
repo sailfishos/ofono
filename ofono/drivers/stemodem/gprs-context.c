@@ -48,6 +48,7 @@
 #include "if_caif.h"
 #include "caif_rtnl.h"
 #include "common.h"
+#include "src/missing.h"
 
 #define MAX_DNS 2
 #define IP_ADDR_LEN 20

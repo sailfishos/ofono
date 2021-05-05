@@ -37,6 +37,7 @@
 #include "gatresult.h"
 
 #include "hsomodem.h"
+#include "src/missing.h"
 
 #define HSO_DISCONNECTED 0
 #define HSO_CONNECTED 1

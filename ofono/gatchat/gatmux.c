@@ -38,6 +38,7 @@
 #include "ringbuffer.h"
 #include "gatmux.h"
 #include "gsm0710.h"
+#include "src/missing.h"
 
 static const char *cmux_prefix[] = { "+CMUX:", NULL };
 static const char *none_prefix[] = { NULL };

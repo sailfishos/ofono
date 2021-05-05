@@ -33,6 +33,7 @@
 #include "simutil.h"
 #include "util.h"
 #include "smsutil.h"
+#include "missing.h"
 
 struct sim_eons {
 	struct sim_eons_operator_info *pnn_list;

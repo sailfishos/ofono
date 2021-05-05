@@ -46,6 +46,7 @@
 #include "storage.h"
 #include "simfs.h"
 #include "stkutil.h"
+#include "missing.h"
 
 /*
  * A new session object will be created if a USim/ISim applications are

@@ -39,6 +39,7 @@
 #include "gattty.h"
 
 #include "huaweimodem.h"
+#include "src/missing.h"
 
 static const char *none_prefix[] = { NULL };
 static const char *dhcp_prefix[] = { "^DHCP:", NULL };

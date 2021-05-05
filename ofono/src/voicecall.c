@@ -40,6 +40,7 @@
 #include "smsutil.h"
 #include "storage.h"
 #include "voicecallagent.h"
+#include "missing.h"
 
 #define MAX_VOICE_CALLS 16
 

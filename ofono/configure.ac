@@ -64,7 +64,10 @@ AC_CHECK_FUNC(signalfd, dummy=yes,
 AC_CHECK_LIB(dl, dlopen, dummy=yes,
 			AC_MSG_ERROR(dynamic linking loader is required))
 
-PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.68, dummy=yes, [
+PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.68, [
+	AC_DEFINE_UNQUOTED(HAVE_G_MEMDUP2, 1,
+			[Define to 1 if you have the `g_memdup2' function.])
+], [
 	PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.60, dummy=yes,
 				AC_MSG_ERROR(GLib >= 2.60 is required))
 ])

@@ -40,6 +40,7 @@
 #include "gattty.h"
 
 #include "iceramodem.h"
+#include "src/missing.h"
 
 #define ICERA_DISCONNECTED	0
 #define ICERA_CONNECTED		1

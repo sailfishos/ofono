@@ -702,8 +702,8 @@ endif
 
 sbin_PROGRAMS = src/ofonod
 
-src_ofonod_SOURCES = $(builtin_sources) $(gatchat_sources) \
-			linux/gsmmux.h linux/gpio.h src/ofono.ver \
+src_ofonod_SOURCES = $(builtin_sources) $(gatchat_sources) src/ofono.ver \
+			linux/gsmmux.h linux/gpio.h src/missing.h \
 			src/main.c src/ofono.h src/log.c src/plugin.c \
 			src/modem.c src/common.h src/common.c \
 			src/manager.c src/dbus.c src/util.h src/util.c \

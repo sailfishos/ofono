@@ -36,6 +36,7 @@
 #include <gdbus.h>
 #include <gatchat/gatserver.h>
 
+#include "src/missing.h"
 #include "unit/stk-test-data.h"
 
 #define OFONO_SERVICE	"org.ofono"

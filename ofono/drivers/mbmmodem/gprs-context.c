@@ -38,6 +38,7 @@
 #include "gatresult.h"
 
 #include "mbmmodem.h"
+#include "src/missing.h"
 
 #define MBM_E2NAP_DISCONNECTED 0
 #define MBM_E2NAP_CONNECTED 1

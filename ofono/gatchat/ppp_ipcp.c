@@ -34,6 +34,7 @@
 #include "gatutil.h"
 #include "gatppp.h"
 #include "ppp.h"
+#include "src/missing.h"
 
 #define IPCP_SUPPORTED_CODES	((1 << PPPCP_CODE_TYPE_CONFIGURE_REQUEST) | \
 				(1 << PPPCP_CODE_TYPE_CONFIGURE_ACK) | \

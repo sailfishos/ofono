@@ -40,6 +40,7 @@
 #include "simfs.h"
 #include "simutil.h"
 #include "storage.h"
+#include "missing.h"
 
 #define SIM_CACHE_MODE 0600
 #define SIM_CACHE_BASEPATH STORAGEDIR "/%s-%i"

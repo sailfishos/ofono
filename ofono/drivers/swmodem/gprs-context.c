@@ -40,6 +40,7 @@
 #include "gattty.h"
 
 #include "swmodem.h"
+#include "src/missing.h"
 
 static const char *none_prefix[] = { NULL };
 

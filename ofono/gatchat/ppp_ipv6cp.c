@@ -34,6 +34,7 @@
 
 #include "gatppp.h"
 #include "ppp.h"
+#include "missing.h"
 
 #define IPV6CP_SUPPORTED_CODES	((1 << PPPCP_CODE_TYPE_CONFIGURE_REQUEST) | \
 				(1 << PPPCP_CODE_TYPE_CONFIGURE_ACK) | \

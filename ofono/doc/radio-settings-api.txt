@@ -50,6 +50,9 @@ Properties	string TechnologyPreference [readwrite]
 				"lte,umts"	Dual mode operation with LTE
 					and UMTS radio access with preference
 					for LTE.
+				"lte,gsm"	Dual mode operation with LTE
+					and GSM radio access with preference
+					for LTE.
 
 		array{string} AvailableTechnologies [readonly, optional]
 

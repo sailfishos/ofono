@@ -46,11 +46,11 @@ static GSList *g_drivers = NULL;
 struct ofono_radio_settings {
 	struct ofono_dbus_queue *q;
 	int flags;
-	enum ofono_radio_access_mode mode;
+	unsigned int mode;
 	enum ofono_radio_band_gsm band_gsm;
 	enum ofono_radio_band_umts band_umts;
 	ofono_bool_t fast_dormancy;
-	enum ofono_radio_access_mode pending_mode;
+	unsigned int pending_mode;
 	enum ofono_radio_band_gsm pending_band_gsm;
 	enum ofono_radio_band_umts pending_band_umts;
 	ofono_bool_t fast_dormancy_pending;
@@ -62,8 +62,8 @@ struct ofono_radio_settings {
 	struct ofono_atom *atom;
 };
 
-enum ofono_radio_access_mode ofono_radio_access_max_mode(
-					enum ofono_radio_access_mode mask)
+unsigned int ofono_radio_access_max_mode(
+					unsigned int mask)
 {
 	return	(mask & OFONO_RADIO_ACCESS_MODE_LTE) ?
 					OFONO_RADIO_ACCESS_MODE_LTE :
@@ -74,8 +74,7 @@ enum ofono_radio_access_mode ofono_radio_access_max_mode(
 					OFONO_RADIO_ACCESS_MODE_ANY;
 }
 
-#define radio_access_mode_to_string ofono_radio_access_mode_to_string
-const char *ofono_radio_access_mode_to_string(enum ofono_radio_access_mode m)
+static const char *radio_access_mode_to_string(unsigned int m)
 {
 	switch (ofono_radio_access_max_mode(m)) {
 	case OFONO_RADIO_ACCESS_MODE_ANY:
@@ -100,10 +99,8 @@ const char *ofono_radio_access_mode_to_string(enum ofono_radio_access_mode m)
 	return NULL;
 }
 
-#define radio_access_mode_from_string ofono_radio_access_mode_from_string
-ofono_bool_t ofono_radio_access_mode_from_string(const char *str,
-					enum ofono_radio_access_mode *mode)
-
+static gboolean radio_access_mode_from_string(const char *str,
+					unsigned int *mode)
 {
 	if (!str) {
 		return FALSE;
@@ -391,7 +388,7 @@ static void radio_band_set_callback(const struct ofono_error *error,
 }
 
 static void radio_set_rat_mode(struct ofono_radio_settings *rs,
-				enum ofono_radio_access_mode mode)
+				unsigned int mode)
 {
 	DBusConnection *conn = ofono_dbus_get_connection();
 	const char *path;
@@ -536,8 +533,7 @@ static void radio_query_band(struct ofono_radio_settings *rs)
 }
 
 static void radio_rat_mode_query_callback(const struct ofono_error *error,
-					enum ofono_radio_access_mode mode,
-					void *data)
+						int mode, void *data)
 {
 	struct ofono_radio_settings *rs = data;
 
@@ -596,7 +592,7 @@ static DBusMessage *radio_set_property_handler(DBusMessage *msg, void *data)
 
 	if (g_strcmp0(property, "TechnologyPreference") == 0) {
 		const char *value;
-		enum ofono_radio_access_mode mode;
+		unsigned int mode;
 
 		if (rs->driver->set_rat_mode == NULL)
 			return __ofono_error_not_implemented(msg);

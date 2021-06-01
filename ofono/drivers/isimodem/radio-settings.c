@@ -52,7 +52,7 @@ struct radio_data {
 	uint16_t quick_release:1;
 };
 
-static enum ofono_radio_access_mode isi_mode_to_ofono_mode(guint8 mode)
+static unsigned int isi_mode_to_ofono_mode(guint8 mode)
 {
 	switch (mode) {
 	case GSS_DUAL_RAT:
@@ -66,7 +66,7 @@ static enum ofono_radio_access_mode isi_mode_to_ofono_mode(guint8 mode)
 	}
 }
 
-static int ofono_mode_to_isi_mode(enum ofono_radio_access_mode mode)
+static int ofono_mode_to_isi_mode(unsigned int mode)
 {
 	switch (mode) {
 	case OFONO_RADIO_ACCESS_MODE_ANY:
@@ -184,8 +184,7 @@ error:
 	return;
 }
 
-static void isi_set_rat_mode(struct ofono_radio_settings *rs,
-				enum ofono_radio_access_mode mode,
+static void isi_set_rat_mode(struct ofono_radio_settings *rs, unsigned int mode,
 				ofono_radio_settings_rat_mode_set_cb_t cb,
 				void *data)
 {

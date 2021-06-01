@@ -134,7 +134,7 @@ static void syscfg_query_mode_cb(gboolean ok, GAtResult *result,
 {
 	struct cb_data *cbd = user_data;
 	ofono_radio_settings_rat_mode_query_cb_t cb = cbd->cb;
-	enum ofono_radio_access_mode mode;
+	unsigned int mode;
 	struct ofono_error error;
 	GAtResultIter iter;
 	int value;
@@ -182,7 +182,7 @@ static void syscfgex_query_mode_cb(gboolean ok, GAtResult *result,
 {
 	struct cb_data *cbd = user_data;
 	ofono_radio_settings_rat_mode_query_cb_t cb = cbd->cb;
-	enum ofono_radio_access_mode mode;
+	unsigned int mode;
 	struct ofono_error error;
 	GAtResultIter iter;
 	const char *acqorder;
@@ -262,7 +262,7 @@ static void syscfgxx_modify_mode_cb(gboolean ok, GAtResult *result,
 }
 
 static void syscfg_set_rat_mode(struct radio_settings_data *rsd,
-				enum ofono_radio_access_mode mode,
+				unsigned int mode,
 				ofono_radio_settings_rat_mode_set_cb_t cb,
 				void *data)
 {
@@ -302,7 +302,7 @@ error:
 }
 
 static void syscfgex_set_rat_mode(struct radio_settings_data *rsd,
-				enum ofono_radio_access_mode mode,
+				unsigned int mode,
 				ofono_radio_settings_rat_mode_set_cb_t cb,
 				void *data)
 {
@@ -344,7 +344,7 @@ static void syscfgex_set_rat_mode(struct radio_settings_data *rsd,
 }
 
 static void huawei_set_rat_mode(struct ofono_radio_settings *rs,
-				enum ofono_radio_access_mode mode,
+				unsigned int mode,
 				ofono_radio_settings_rat_mode_set_cb_t cb,
 				void *data)
 {

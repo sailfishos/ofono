@@ -50,7 +50,7 @@ static void nwrat_query_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	struct cb_data *cbd = user_data;
 	ofono_radio_settings_rat_mode_query_cb_t cb = cbd->cb;
-	enum ofono_radio_access_mode mode;
+	unsigned int mode;
 	struct ofono_error error;
 	GAtResultIter iter;
 	int value;
@@ -117,8 +117,7 @@ static void nwrat_modify_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	cb(&error, cbd->data);
 }
 
-static void nw_set_rat_mode(struct ofono_radio_settings *rs,
-				enum ofono_radio_access_mode mode,
+static void nw_set_rat_mode(struct ofono_radio_settings *rs, unsigned int mode,
 				ofono_radio_settings_rat_mode_set_cb_t cb,
 				void *data)
 {

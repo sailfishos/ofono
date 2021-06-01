@@ -102,8 +102,7 @@ static void ril_set_rat_cb(struct ril_msg *message, gpointer user_data)
 	}
 }
 
-static void ril_set_rat_mode(struct ofono_radio_settings *rs,
-			enum ofono_radio_access_mode mode,
+static void ril_set_rat_mode(struct ofono_radio_settings *rs, unsigned int mode,
 			ofono_radio_settings_rat_mode_set_cb_t cb,
 			void *data)
 {

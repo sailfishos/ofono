@@ -614,8 +614,6 @@ static void gemalto_post_sim(struct ofono_modem *modem)
 	if (gprs && gc)
 		ofono_gprs_add_context(gprs, gc);
 
-	ofono_ussd_create(modem, 0, "atmodem", data->app);
-
 	if (!g_strcmp0(model, GEMALTO_MODEL_ALS3_PLS8x) ||
 	    !g_strcmp0(model, GEMALTO_MODEL_ELS81x))
 		ofono_lte_create(modem, OFONO_VENDOR_GEMALTO,
@@ -638,6 +636,8 @@ static void gemalto_post_online(struct ofono_modem *modem)
 	ofono_call_settings_create(modem, 0, "atmodem", data->app);
 	ofono_call_meter_create(modem, 0, "atmodem", data->app);
 	ofono_call_barring_create(modem, 0, "atmodem", data->app);
+
+	ofono_ussd_create(modem, 0, "atmodem", data->app);
 
 	if (!g_strcmp0(model, GEMALTO_MODEL_ELS81x))
 		ofono_netmon_create(modem, OFONO_VENDOR_GEMALTO,

@@ -36,6 +36,7 @@
 static int gemaltomodem_init(void)
 {
 	gemalto_location_reporting_init();
+	gemalto_radio_settings_init();
 	gemalto_gprs_context_init();
 	gemalto_voicecall_init();
 	gemalto_netmon_init();
@@ -46,6 +47,7 @@ static int gemaltomodem_init(void)
 static void gemaltomodem_exit(void)
 {
 	gemalto_location_reporting_exit();
+	gemalto_radio_settings_exit();
 	gemalto_gprs_context_exit();
 	gemalto_voicecall_exit();
 	gemalto_netmon_exit();

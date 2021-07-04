@@ -49,6 +49,7 @@
 #include <ofono/gprs-context.h>
 #include <ofono/location-reporting.h>
 #include <ofono/netmon.h>
+#include <ofono/radio-settings.h>
 
 #include <drivers/atmodem/atutil.h>
 #include <drivers/atmodem/vendor.h>
@@ -597,6 +598,7 @@ static void gemalto_post_sim(struct ofono_modem *modem)
 	ofono_phonebook_create(modem, 0, "atmodem", data->app);
 
 	ofono_sms_create(modem, OFONO_VENDOR_GEMALTO, "atmodem", data->app);
+	ofono_radio_settings_create(modem, 0, "gemaltomodem", data->app);
 
 	gprs = ofono_gprs_create(modem, 0, "atmodem", data->app);
 

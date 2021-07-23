@@ -171,21 +171,18 @@ static void gemalto_set_rat_mode(struct ofono_radio_settings *rs,
 	case OFONO_RADIO_ACCESS_MODE_LTE:
 		val = 3;
 		break;
-	}
-
-	if (m == (OFONO_RADIO_ACCESS_MODE_UMTS|OFONO_RADIO_ACCESS_MODE_GSM)) {
+	case OFONO_RADIO_ACCESS_MODE_UMTS|OFONO_RADIO_ACCESS_MODE_GSM:
 		val = 1;
 		p1 = 2;
-	}
-
-	if (m == (OFONO_RADIO_ACCESS_MODE_LTE|OFONO_RADIO_ACCESS_MODE_UMTS)) {
+		break;
+	case OFONO_RADIO_ACCESS_MODE_LTE|OFONO_RADIO_ACCESS_MODE_UMTS:
 		val = 4;
 		p1 = 3;
-	}
-
-	if (m == (OFONO_RADIO_ACCESS_MODE_LTE|OFONO_RADIO_ACCESS_MODE_GSM)) {
+		break;
+	case OFONO_RADIO_ACCESS_MODE_LTE|OFONO_RADIO_ACCESS_MODE_GSM:
 		val = 5;
 		p1 = 3;
+		break;
 	}
 
 	if (val == 6)

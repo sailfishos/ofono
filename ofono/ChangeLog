@@ -1,3 +1,8 @@
+ver 1.33:
+	Fix issue with filling unused part of AID with FFs.
+	Fix issue with reads beyond the first block of SIM filesystem.
+	Fix issue with parsing auth response according to TS 31.102.
+
 ver 1.32:
 	Fix issue with handling of IMS private identity validation.
 	Fix issue with handling of SIM EF structure bit processing.

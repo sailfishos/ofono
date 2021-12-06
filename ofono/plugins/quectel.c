@@ -1322,6 +1322,8 @@ static void quectel_pre_sim(struct ofono_modem *modem)
 
 	DBG("%p", modem);
 
+	ofono_devinfo_create(modem, data->vendor, "atmodem", data->aux);
+
 	ofono_voicecall_create(modem, data->vendor, "atmodem", data->aux);
 	sim = ofono_sim_create(modem, data->vendor, "atmodem", data->aux);
 

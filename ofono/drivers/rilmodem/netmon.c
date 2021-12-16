@@ -358,8 +358,10 @@ static void periodic_update_cb(struct ril_msg *message, gpointer user_data)
 	struct cb_data *cbd = user_data;
 	ofono_netmon_cb_t cb = cbd->cb;
 
-	if (message->error != RIL_E_SUCCESS)
+	if (message->error != RIL_E_SUCCESS) {
 		CALLBACK_WITH_FAILURE(cb, cbd->data);
+		return;
+	}
 
 	CALLBACK_WITH_SUCCESS(cb, cbd->data);
 }

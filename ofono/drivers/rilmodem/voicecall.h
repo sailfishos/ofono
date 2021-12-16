@@ -31,6 +31,7 @@ struct ril_voicecall_data {
 	void *data;
 	gchar *tone_queue;
 	gboolean tone_pending;
+	gboolean suppress_clcc_poll;
 };
 
 int ril_voicecall_probe(struct ofono_voicecall *vc, unsigned int vendor,

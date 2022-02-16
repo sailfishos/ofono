@@ -78,8 +78,8 @@ PKG_CHECK_MODULES(GIO, gio-2.0, dummy=yes,
 GLIB_CFLAGS="$GLIB_CFLAGS $GIO_CFLAGS"
 GLIB_LIBS="$GLIB_LIBS $GIO_LIBS"
 
-PKG_CHECK_MODULES(DBUS, dbus-1 >= 1.4, dummy=yes,
-				AC_MSG_ERROR(D-Bus >= 1.4 is required))
+PKG_CHECK_MODULES(DBUS, dbus-1 >= 1.6, dummy=yes,
+				AC_MSG_ERROR(D-Bus >= 1.6 is required))
 AC_SUBST(DBUS_CFLAGS)
 AC_SUBST(DBUS_LIBS)
 

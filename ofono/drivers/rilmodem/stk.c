@@ -212,13 +212,13 @@ static int ril_stk_probe(struct ofono_stk *stk, unsigned int vendor,
 
 	ofono_stk_set_data(stk, data);
 
-	g_ril_register(ril, RIL_UNSOL_STK_PROACTIVE_COMMAND,
+	g_ril_register(data->ril, RIL_UNSOL_STK_PROACTIVE_COMMAND,
 					ril_stk_proactive_cmd_notify, stk);
 
-	g_ril_register(ril, RIL_UNSOL_STK_SESSION_END,
+	g_ril_register(data->ril, RIL_UNSOL_STK_SESSION_END,
 					ril_stk_session_end_notify, stk);
 
-	g_ril_register(ril, RIL_UNSOL_STK_EVENT_NOTIFY,
+	g_ril_register(data->ril, RIL_UNSOL_STK_EVENT_NOTIFY,
 					ril_stk_event_notify, stk);
 
 	g_ril_send(data->ril, RIL_REQUEST_REPORT_STK_SERVICE_IS_RUNNING, NULL,

@@ -45,7 +45,7 @@ static void get_system_selection_pref_cb(struct qmi_result *result,
 {
 	struct cb_data *cbd = user_data;
 	ofono_radio_settings_rat_mode_query_cb_t cb = cbd->cb;
-	enum ofono_radio_access_mode mode = OFONO_RADIO_ACCESS_MODE_ANY;
+	unsigned int mode = OFONO_RADIO_ACCESS_MODE_ANY;
 	uint16_t pref;
 
 	DBG("");
@@ -67,6 +67,9 @@ static void get_system_selection_pref_cb(struct qmi_result *result,
 		break;
 	case QMI_NAS_RAT_MODE_PREF_LTE:
 		mode = OFONO_RADIO_ACCESS_MODE_LTE;
+		break;
+	case QMI_NAS_RAT_MODE_PREF_GSM|QMI_NAS_RAT_MODE_PREF_LTE:
+		mode = OFONO_RADIO_ACCESS_MODE_GSM|OFONO_RADIO_ACCESS_MODE_LTE;
 		break;
 	}
 
@@ -106,8 +109,7 @@ static void set_system_selection_pref_cb(struct qmi_result *result,
 	CALLBACK_WITH_SUCCESS(cb, cbd->data);
 }
 
-static void qmi_set_rat_mode(struct ofono_radio_settings *rs,
-			enum ofono_radio_access_mode mode,
+static void qmi_set_rat_mode(struct ofono_radio_settings *rs, unsigned int mode,
 			ofono_radio_settings_rat_mode_set_cb_t cb,
 			void *user_data)
 {
@@ -130,6 +132,9 @@ static void qmi_set_rat_mode(struct ofono_radio_settings *rs,
 		break;
 	case OFONO_RADIO_ACCESS_MODE_LTE:
 		pref = QMI_NAS_RAT_MODE_PREF_LTE;
+		break;
+	case OFONO_RADIO_ACCESS_MODE_LTE|OFONO_RADIO_ACCESS_MODE_GSM:
+		pref = QMI_NAS_RAT_MODE_PREF_LTE|QMI_NAS_RAT_MODE_PREF_GSM;
 		break;
 	}
 

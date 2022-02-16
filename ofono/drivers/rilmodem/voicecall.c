@@ -177,7 +177,7 @@ static void clcc_poll_cb(struct ril_msg *message, gpointer user_data)
 		call->id = parcel_r_int32(&rilp);
 		call->phone_number.type = parcel_r_int32(&rilp);
 		parcel_r_int32(&rilp); /* isMpty */
-		parcel_r_int32(&rilp); /* isMT */
+		call->direction = parcel_r_int32(&rilp); /* isMT */
 		parcel_r_int32(&rilp); /* als */
 		call->type = parcel_r_int32(&rilp); /* isVoice */
 		parcel_r_int32(&rilp); /* isVoicePrivacy */
@@ -396,6 +396,8 @@ static void rild_cb(struct ril_msg *message, gpointer user_data)
 	 * DIAL_MODIFIED_TO_DIAL means redirection. The call we will see when
 	 * polling will have a different called number.
 	 */
+	vd->suppress_clcc_poll = FALSE;
+
 	if (message->error == RIL_E_SUCCESS ||
 			(g_ril_vendor(vd->ril) == OFONO_RIL_VENDOR_AOSP &&
 			message->error == RIL_E_DIAL_MODIFIED_TO_DIAL)) {
@@ -448,8 +450,10 @@ static void dial(struct ofono_voicecall *vc,
 
 	/* Send request to RIL */
 	if (g_ril_send(vd->ril, RIL_REQUEST_DIAL, &rilp,
-			rild_cb, cbd, g_free) > 0)
+			rild_cb, cbd, g_free) > 0) {
+		vd->suppress_clcc_poll = TRUE;
 		return;
+	}
 
 	g_free(cbd);
 	CALLBACK_WITH_FAILURE(cb, data);
@@ -593,6 +597,11 @@ void ril_call_state_notify(struct ril_msg *message, gpointer user_data)
 	struct ril_voicecall_data *vd = ofono_voicecall_get_data(vc);
 
 	g_ril_print_unsol_no_args(vd->ril, message);
+
+	if (vd->suppress_clcc_poll) {
+		DBG("suppress clcc poll!");
+		return;
+	}
 
 	/* Just need to request the call list again */
 	ril_poll_clcc(vc);
@@ -829,6 +838,7 @@ int ril_voicecall_probe(struct ofono_voicecall *vc, unsigned int vendor,
 	vd->vendor = vendor;
 	vd->cb = NULL;
 	vd->data = NULL;
+	vd->suppress_clcc_poll = FALSE;
 
 	clear_dtmf_queue(vd);
 

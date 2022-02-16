@@ -38,6 +38,7 @@
 #include "util.h"
 #include "storage.h"
 #include "smsutil.h"
+#include "missing.h"
 
 #include <ofono/misc.h>
 
@@ -2810,7 +2811,7 @@ static void sr_assembly_load_backup(GHashTable *assembly_table,
 	}
 
 	/* Node ready, create key and add them to the table */
-	id_table_key = g_memdup(msgid, SMS_MSGID_LEN);
+	id_table_key = g_memdup2(msgid, SMS_MSGID_LEN);
 
 	g_hash_table_insert(id_table, id_table_key, node);
 }
@@ -3125,7 +3126,7 @@ void status_report_assembly_add_fragment(
 
 	/* Create node in the message id hashtable if required */
 	if (node == NULL) {
-		id_table_key = g_memdup(msgid, SMS_MSGID_LEN);
+		id_table_key = g_memdup2(msgid, SMS_MSGID_LEN);
 
 		node = g_new0(struct id_table_node, 1);
 		node->total_mrs = total_mrs;
@@ -3236,7 +3237,7 @@ static GSList *sms_tx_load(const char *imsi, const struct dirent *dir)
 		if (sms_deserialize_outgoing(buf, &s, r) == FALSE)
 			goto free_pdu;
 
-		list = g_slist_prepend(list, g_memdup(&s, sizeof(s)));
+		list = g_slist_prepend(list, g_memdup2(&s, sizeof(s)));
 
 free_pdu:
 		g_free(pdus[len]);
@@ -3571,6 +3572,7 @@ GSList *sms_text_prepare_with_alphabet(const char *to, const char *utf8,
 	GSList *r = NULL;
 	enum gsm_dialect used_locking;
 	enum gsm_dialect used_single;
+	enum gsm_dialect dialect;
 
 	memset(&template, 0, sizeof(struct sms));
 	template.type = SMS_TYPE_SUBMIT;
@@ -3582,12 +3584,14 @@ GSList *sms_text_prepare_with_alphabet(const char *to, const char *utf8,
 	template.submit.vp.relative = 0xA7; /* 24 Hours */
 	sms_address_from_string(&template.submit.daddr, to);
 
+	/* There are two enums for the same thing */
+	dialect = (enum gsm_dialect)alphabet;
 	/*
 	 * UDHI, UDL, UD and DCS actually depend on the contents of
 	 * the text, and also on the GSM dialect we use to encode it.
 	 */
 	gsm_encoded = convert_utf8_to_gsm_best_lang(utf8, -1, NULL, &written, 0,
-							alphabet, &used_locking,
+							dialect, &used_locking,
 							&used_single);
 	if (gsm_encoded == NULL) {
 		gsize converted;

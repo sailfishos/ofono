@@ -32,8 +32,8 @@
 #include <gdbus.h>
 
 #include "ofono.h"
-
 #include "common.h"
+#include "missing.h"
 
 #define DEFAULT_POWERED_TIMEOUT (20)
 
@@ -1150,6 +1150,9 @@ static DBusMessage *modem_set_property(DBusConnection *conn,
 		if (modem->lockdown)
 			return __ofono_error_access_denied(msg);
 
+		if (!powered)
+			__ofono_sim_clear_cached_pins(modem->sim);
+
 		err = set_powered(modem, powered);
 		if (err < 0) {
 			if (err != -EINPROGRESS)
@@ -1779,10 +1782,10 @@ static int set_modem_property(struct ofono_modem *modem, const char *name,
 		property->value = g_strdup((const char *) value);
 		break;
 	case PROPERTY_TYPE_INTEGER:
-		property->value = g_memdup(value, sizeof(int));
+		property->value = g_memdup2(value, sizeof(int));
 		break;
 	case PROPERTY_TYPE_BOOLEAN:
-		property->value = g_memdup(value, sizeof(ofono_bool_t));
+		property->value = g_memdup2(value, sizeof(ofono_bool_t));
 		break;
 	default:
 		break;

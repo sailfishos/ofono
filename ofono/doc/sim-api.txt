@@ -79,6 +79,16 @@ Methods		dict GetProperties()
 					 [service].Error.InvalidArguments
 					 [service].Error.Failed
 
+		void SetProperty(string property, variant value)
+
+			Sets the given property value to that specified in
+			call parameter.
+
+			Possible Errors: [service].Error.InProgress
+					 [service].Error.NotImplemented
+					 [service].Error.InvalidArguments
+					 [service].Error.Failed
+
 Signals		PropertyChanged(string name, variant value)
 
 			This signal indicates a changed value of the given
@@ -205,3 +215,15 @@ Properties	boolean Present [readonly]
 
 			Contains the SIM's ImsPrivateIdentity, read from the
 			ISIM.
+
+		uint32 CardSlotCount [readonly, experimental]
+
+			Contains the count of number of SIM card slots available.
+
+		uint32 ActiveCardSlot [readwrite, experimental]
+
+			Contains the index of the currently active SIM card slot
+			for dual SIM single active mode.
+
+			This property will range from 1 (default) to
+			CardSlotCount (max) value.

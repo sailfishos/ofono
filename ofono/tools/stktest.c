@@ -36,6 +36,7 @@
 #include <gdbus.h>
 #include <gatchat/gatserver.h>
 
+#include "src/missing.h"
 #include "unit/stk-test-data.h"
 
 #define OFONO_SERVICE	"org.ofono"
@@ -3375,9 +3376,9 @@ static void stktest_add_test(const char *name, const char *method,
 
 	test->name = g_strdup(name);
 	test->method = g_strdup(method);
-	test->req_pdu = g_memdup(req, req_len);
+	test->req_pdu = g_memdup2(req, req_len);
 	test->req_len = req_len;
-	test->rsp_pdu = g_memdup(rsp, rsp_len);
+	test->rsp_pdu = g_memdup2(rsp, rsp_len);
 	test->rsp_len = rsp_len;
 	test->agent_func = agent_func;
 	test->tr_func = tr_func;

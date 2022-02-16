@@ -59,9 +59,11 @@
 
 #include "ofono.h"
 #include "gdbus.h"
+#include "util.h"
 
 #define OFONO_COEX_INTERFACE OFONO_SERVICE ".intel.LteCoexistence"
 #define OFONO_COEX_AGENT_INTERFACE OFONO_SERVICE ".intel.LteCoexistenceAgent"
+#define OFONO_EUICC_LPA_INTERFACE OFONO_SERVICE ".intel.EuiccLpa"
 
 #define NET_BAND_LTE_INVALID 0
 #define NET_BAND_LTE_1 101
@@ -73,6 +75,8 @@
 static const char *none_prefix[] = { NULL };
 static const char *xsimstate_prefix[] = { "+XSIMSTATE:", NULL };
 static const char *xnvmplmn_prefix[] = { "+XNVMPLMN:", NULL };
+static const char *ccho_prefix[] = { "+CCHO:", NULL };
+static const char *cgla_prefix[] = { "+CGLA:", NULL };
 
 struct bt_coex_info {
 	int safe_tx_min;
@@ -106,9 +110,381 @@ struct xmm7xxx_data {
 	GAtChat *chat;		/* AT chat */
 	struct ofono_sim *sim;
 	ofono_bool_t have_sim;
-	ofono_bool_t sms_phonebook_added;
 	unsigned int netreg_watch;
+	int xsim_status;
+	ofono_bool_t stk_enable;
+	ofono_bool_t enable_euicc;
 };
+
+/* eUICC Implementation */
+#define EUICC_EID_CMD "80e2910006BF3E035C015A00"
+#define EUICC_ISDR_AID "A0000005591010FFFFFFFF8900000100"
+
+struct xmm7xxx_euicc {
+	GAtChat *chat;
+	struct ofono_modem *modem;
+	char *eid;
+	int channel;
+	char *command;
+	int length;
+	DBusMessage *pending;
+	ofono_bool_t is_registered;
+};
+
+static void euicc_cleanup(void *data)
+{
+	struct xmm7xxx_euicc *euicc = data;
+
+	g_free(euicc->command);
+	g_free(euicc->eid);
+
+	if (euicc->pending)
+		dbus_message_unref(euicc->pending);
+
+	g_free(euicc);
+}
+
+static void euicc_release_isdr(struct xmm7xxx_euicc *euicc)
+{
+	char buff[20];
+
+	snprintf(buff, sizeof(buff), "AT+CCHC=%u", euicc->channel);
+
+	g_at_chat_send(euicc->chat, buff, none_prefix, NULL, NULL, NULL);
+
+	euicc->channel = -1;
+	g_free(euicc->command);
+	euicc->command = NULL;
+	euicc->length = 0;
+}
+
+static void euicc_pending_reply(struct xmm7xxx_euicc *euicc,
+							const char *resp)
+{
+	DBusMessage *reply;
+	DBusMessageIter iter, array;
+	unsigned char *response = NULL;
+	long length;
+	int bufferBytesSize = strlen(resp) / 2;
+
+	reply = dbus_message_new_method_return(euicc->pending);
+	if (reply == NULL)
+		goto done;
+
+	response = g_new0(unsigned char, bufferBytesSize);
+	decode_hex_own_buf(resp, strlen(resp),  &length, '\0', response );
+
+	dbus_message_iter_init_append(reply, &iter);
+	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+				DBUS_TYPE_BYTE_AS_STRING, &array);
+	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE,
+					&response, length);
+	dbus_message_iter_close_container(&iter, &array);
+
+	g_free(response);
+done:
+	__ofono_dbus_pending_reply(&euicc->pending, reply);
+}
+
+static DBusMessage *euicc_get_properties(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	struct xmm7xxx_euicc *euicc = data;
+	DBusMessage *reply;
+	DBusMessageIter iter;
+	DBusMessageIter dict;
+	const char *eid = NULL;
+
+	reply = dbus_message_new_method_return(msg);
+	if (reply == NULL)
+		return NULL;
+
+	dbus_message_iter_init_append(reply, &iter);
+
+	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+					OFONO_PROPERTIES_ARRAY_SIGNATURE,
+					&dict);
+
+	eid = euicc->eid;
+	ofono_dbus_dict_append(&dict, "EID", DBUS_TYPE_STRING, &eid);
+
+	dbus_message_iter_close_container(&iter, &dict);
+
+	return reply;
+}
+
+static DBusMessage *euicc_transmit_pdu(DBusConnection *conn,
+					DBusMessage *msg, void *data);
+static DBusMessage *euicc_select_isdr_req(DBusConnection *conn,
+						DBusMessage *msg, void *data);
+static DBusMessage *euicc_release_isdr_req(DBusConnection *conn,
+						DBusMessage *msg, void *data);
+
+static const GDBusMethodTable euicc_methods[] = {
+	{ GDBUS_ASYNC_METHOD("TransmitLpaApdu",
+			GDBUS_ARGS({ "pdu", "ay" }),
+			GDBUS_ARGS({ "pdu", "ay" }),
+			euicc_transmit_pdu) },
+	{ GDBUS_ASYNC_METHOD("SelectISDR",
+			NULL, NULL, euicc_select_isdr_req) },
+	{ GDBUS_ASYNC_METHOD("ReleaseISDR",
+			NULL, NULL, euicc_release_isdr_req) },
+	{ GDBUS_ASYNC_METHOD("GetProperties",
+			NULL, GDBUS_ARGS({ "properties", "a{sv}" }),
+			euicc_get_properties) },
+	{ }
+};
+
+static const GDBusSignalTable euicc_signals[] = {
+	{ GDBUS_SIGNAL("PropertyChanged",
+			GDBUS_ARGS({ "name", "s" }, { "value", "v" })) },
+	{ }
+};
+
+static void euicc_register(struct xmm7xxx_euicc *euicc)
+{
+	DBusConnection *conn = ofono_dbus_get_connection();
+	const char *path = ofono_modem_get_path(euicc->modem);
+
+	DBG("euicc_register");
+
+	if (!g_dbus_register_interface(conn, path, OFONO_EUICC_LPA_INTERFACE,
+					euicc_methods,
+					euicc_signals,
+					NULL, euicc, euicc_cleanup)) {
+		ofono_error("Could not register %s interface under %s",
+					OFONO_EUICC_LPA_INTERFACE, path);
+		return;
+	}
+
+	ofono_modem_add_interface(euicc->modem, OFONO_EUICC_LPA_INTERFACE);
+	euicc->is_registered = TRUE;
+
+	ofono_dbus_signal_property_changed(conn, path,
+			OFONO_EUICC_LPA_INTERFACE, "EID",
+			DBUS_TYPE_STRING, &euicc->eid);
+}
+
+static void euicc_send_cmd_cb(gboolean ok, GAtResult *result,
+					gpointer user_data)
+{
+	struct xmm7xxx_euicc *euicc = user_data;
+	GAtResultIter iter;
+	int length;
+	const char *resp;
+
+	DBG("ok %d", ok);
+
+	if (!ok) {
+		g_free(euicc->command);
+
+		if (!euicc->is_registered) {
+			g_free(euicc->eid);
+			g_free(euicc);
+		}
+
+		return;
+	}
+
+	DBG("Success");
+
+	g_at_result_iter_init(&iter, result);
+	DBG("Iter init");
+
+	if (!g_at_result_iter_next(&iter, "+CGLA:"))
+		return;
+
+	DBG("CGLA");
+
+	if (!g_at_result_iter_next_number(&iter, &length))
+		return;
+
+	DBG("length = %d", length);
+
+	if (!g_at_result_iter_next_string(&iter, &resp))
+		return;
+
+	DBG("resp = %s", resp);
+
+	if (!euicc->is_registered) {
+		g_free(euicc->eid);
+		euicc->eid = g_strdup(resp+10);
+		euicc_release_isdr(euicc);
+
+		/* eid is present register interface*/
+		euicc_register(euicc);
+	}
+
+	DBG("pending = %p", euicc->pending);
+
+	if (euicc->pending)
+		euicc_pending_reply(euicc, resp);
+}
+
+static void euicc_send_cmd(struct xmm7xxx_euicc *euicc)
+{
+	char *buff = g_new0(char, euicc->length + 20);
+
+	sprintf(buff, "AT+CGLA=%u,%u,\"%s\"",
+		euicc->channel, euicc->length, euicc->command);
+
+	g_at_chat_send(euicc->chat, buff, cgla_prefix,
+			euicc_send_cmd_cb, euicc, NULL);
+
+	g_free(buff);
+}
+
+static void euicc_select_isdr_cb(gboolean ok, GAtResult *result,
+							gpointer user_data)
+{
+	struct xmm7xxx_euicc *euicc = user_data;
+	GAtResultIter iter;
+
+	DBG("ok %d", ok);
+
+	if (!ok) {
+		g_free (euicc->command);
+
+		if (!euicc->is_registered) {
+			g_free(euicc->eid);
+			g_free(euicc);
+		}
+
+		return;
+	}
+
+	g_at_result_iter_init(&iter, result);
+
+	if (!g_at_result_iter_next(&iter, "+CCHO:"))
+		return;
+
+	g_at_result_iter_next_number(&iter, &euicc->channel);
+
+	if (!euicc->is_registered)
+		euicc_send_cmd(euicc);
+
+	if (euicc->pending)
+		__ofono_dbus_pending_reply(&euicc->pending,
+				dbus_message_new_method_return(euicc->pending));
+}
+
+static void euicc_select_isdr(struct xmm7xxx_euicc *euicc)
+{
+	char buff[50];
+
+	snprintf(buff, sizeof(buff), "AT+CCHO=\"%s\"", EUICC_ISDR_AID);
+
+	g_at_chat_send(euicc->chat, buff, ccho_prefix,
+			euicc_select_isdr_cb, euicc, NULL);
+}
+
+static DBusMessage *euicc_transmit_pdu(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	struct xmm7xxx_euicc *euicc = data;
+	DBusMessageIter iter, array;
+	const unsigned char *command;
+	int length;
+
+	DBG("euicc_transmit_pdu");
+
+	if (euicc->pending)
+		return __ofono_error_busy(msg);
+
+	if (euicc->channel < 0)
+		return __ofono_error_not_available(msg);
+
+	if (!dbus_message_iter_init(msg, &iter))
+		return __ofono_error_invalid_args(msg);
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY)
+		return __ofono_error_invalid_args(msg);
+
+	dbus_message_iter_recurse(&iter, &array);
+
+	if (dbus_message_iter_get_arg_type(&array) != DBUS_TYPE_BYTE)
+		return __ofono_error_invalid_args(msg);
+
+	dbus_message_iter_get_fixed_array(&array, &command, &length);
+
+	g_free(euicc->command);
+	euicc->length = length * 2;
+	euicc->command = g_new0(char, euicc->length + 1);
+	encode_hex_own_buf(command,(long)length,0, euicc->command);
+	euicc->pending = dbus_message_ref(msg);
+
+	euicc_send_cmd(euicc);
+
+	return NULL;
+}
+
+static DBusMessage *euicc_select_isdr_req(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	struct xmm7xxx_euicc *euicc = data;
+
+	DBG("euicc_select_isdr_req");
+
+	if (euicc->pending)
+		return __ofono_error_busy(msg);
+
+	euicc_select_isdr(euicc);
+
+	euicc->pending = dbus_message_ref(msg);
+
+	return NULL;
+}
+
+static DBusMessage *euicc_release_isdr_req(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	struct xmm7xxx_euicc *euicc = data;
+
+	DBG("euicc_release_isdr_req");
+
+	if (euicc->pending)
+		return __ofono_error_busy(msg);
+
+	euicc_release_isdr(euicc);
+
+	return dbus_message_new_method_return(msg);
+}
+
+static void euicc_update_eid(struct xmm7xxx_euicc *euicc)
+{
+	g_free(euicc->command);
+	euicc->command = g_strdup(EUICC_EID_CMD);
+	euicc->length = sizeof(EUICC_EID_CMD) - 1;
+
+	euicc_select_isdr(euicc);
+}
+
+static void xmm_euicc_enable(struct ofono_modem *modem, void *data)
+{
+	struct xmm7xxx_euicc *euicc = g_new0(struct xmm7xxx_euicc, 1);
+
+	DBG("euicc enable");
+
+	euicc->chat = data;
+	euicc->modem = modem;
+	euicc->eid = g_strdup("INVALID");
+	euicc->channel = -1;
+	euicc->command = NULL;
+	euicc->pending = NULL;
+	euicc->is_registered = FALSE;
+
+	euicc_update_eid(euicc);
+}
+
+static void xmm_euicc_disable(struct ofono_modem *modem)
+{
+	DBusConnection *conn = ofono_dbus_get_connection();
+	const char *path = ofono_modem_get_path(modem);
+
+	if (g_dbus_unregister_interface(conn, path, OFONO_EUICC_LPA_INTERFACE))
+		ofono_modem_remove_interface(modem, OFONO_EUICC_LPA_INTERFACE);
+}
+/* eUICC Implementation Ends */
 
 /* Coex Implementation */
 enum wlan_bw {
@@ -570,8 +946,6 @@ static DBusMessage *coex_set_property(DBusConnection *conn,
 	} else {
 		return __ofono_error_invalid_args(msg);
 	}
-
-	return dbus_message_new_method_return(msg);
 }
 
 static void coex_default_agent_notify(gpointer user_data)
@@ -965,41 +1339,9 @@ static void xmm7xxx_debug(const char *str, void *user_data)
 static GAtChat *open_device(struct ofono_modem *modem,
 				const char *key, char *debug)
 {
-	const char *device;
-	GAtSyntax *syntax;
-	GIOChannel *channel;
-	GAtChat *chat;
-	GHashTable *options;
-
-	device = ofono_modem_get_string(modem, key);
-	if (device == NULL)
-		return NULL;
-
-	DBG("%s %s", key, device);
-
-	options = g_hash_table_new(g_str_hash, g_str_equal);
-	if (options == NULL)
-		return NULL;
-
-	g_hash_table_insert(options, "Baud", "115200");
-	channel = g_at_tty_open(device, options);
-	g_hash_table_destroy(options);
-
-	if (channel == NULL)
-		return NULL;
-
-	syntax = g_at_syntax_new_gsm_permissive();
-	chat = g_at_chat_new(channel, syntax);
-	g_at_syntax_unref(syntax);
-	g_io_channel_unref(channel);
-
-	if (chat == NULL)
-		return NULL;
-
-	if (getenv("OFONO_AT_DEBUG"))
-		g_at_chat_set_debug(chat, xmm7xxx_debug, debug);
-
-	return chat;
+	return at_util_open_device(modem, key, xmm7xxx_debug, debug,
+					"Baud", "115200",
+					NULL);
 }
 
 static void switch_sim_state_status(struct ofono_modem *modem, int status)
@@ -1014,10 +1356,10 @@ static void switch_sim_state_status(struct ofono_modem *modem, int status)
 		if (data->have_sim == TRUE) {
 			ofono_sim_inserted_notify(data->sim, FALSE);
 			data->have_sim = FALSE;
-			data->sms_phonebook_added = FALSE;
 		}
 		break;
 	case 1: /* SIM inserted, PIN verification needed */
+	case 4: /* SIM inserted, PUK verification needed */
 		if (data->have_sim == FALSE) {
 			ofono_sim_inserted_notify(data->sim, TRUE);
 			data->have_sim = TRUE;
@@ -1025,30 +1367,29 @@ static void switch_sim_state_status(struct ofono_modem *modem, int status)
 		break;
 	case 2:	/* SIM inserted, PIN verification not needed - READY */
 	case 3:	/* SIM inserted, PIN verified - READY */
-	case 7: /* SIM inserted, SMS and phonebook - READY */
+	case 7: /* SIM inserted, Ready for ATTACH - READY */
 		if (data->have_sim == FALSE) {
 			ofono_sim_inserted_notify(data->sim, TRUE);
 			data->have_sim = TRUE;
 		}
 
 		ofono_sim_initialized_notify(data->sim);
-
-		if (data->sms_phonebook_added == FALSE) {
-			ofono_phonebook_create(modem, 0, "atmodem", data->chat);
-			ofono_sms_create(modem, 0, "atmodem", data->chat);
-			data->sms_phonebook_added = TRUE;
-		}
-
+		break;
+	case 18:
+		data->enable_euicc = TRUE;
 		break;
 	default:
 		ofono_warn("Unknown SIM state %d received", status);
 		break;
 	}
+
+	data->xsim_status = status;
 }
 
 static void xsimstate_notify(GAtResult *result, gpointer user_data)
 {
 	struct ofono_modem *modem = user_data;
+	struct xmm7xxx_data *data = ofono_modem_get_data(modem);
 	int status;
 	GAtResultIter iter;
 
@@ -1063,7 +1404,8 @@ static void xsimstate_notify(GAtResult *result, gpointer user_data)
 
 	DBG("status=%d\n", status);
 
-	switch_sim_state_status(modem, status);
+	if (data->xsim_status != status)
+		switch_sim_state_status(modem, status);
 }
 
 static void xsimstate_query_cb(gboolean ok, GAtResult *result,
@@ -1117,7 +1459,7 @@ static void cfun_enable_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	g_at_chat_send(data->chat, "AT&C0", NULL, NULL, NULL, NULL);
 
 	data->have_sim = FALSE;
-	data->sms_phonebook_added = FALSE;
+	data->xsim_status = -1;
 
 	ofono_modem_set_powered(modem, TRUE);
 
@@ -1213,6 +1555,7 @@ static int xmm7xxx_disable(struct ofono_modem *modem)
 		data->netreg_watch = 0;
 	}
 
+	xmm_euicc_disable(modem);
 	return -EINPROGRESS;
 }
 
@@ -1223,8 +1566,10 @@ static void xmm7xxx_pre_sim(struct ofono_modem *modem)
 	DBG("%p", modem);
 
 	ofono_devinfo_create(modem, OFONO_VENDOR_IFX, "atmodem", data->chat);
-	data->sim = ofono_sim_create(modem, OFONO_VENDOR_IFX, "atmodem",
+	data->sim = ofono_sim_create(modem, OFONO_VENDOR_XMM, "atmodem",
 					data->chat);
+	xmm_euicc_enable(modem, data->chat);
+	ofono_stk_create(modem, 0, "atmodem", data->chat);
 }
 
 static void set_online_cb(gboolean ok, GAtResult *result, gpointer user_data)
@@ -1232,8 +1577,15 @@ static void set_online_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	struct cb_data *cbd = user_data;
 	ofono_modem_online_cb_t cb = cbd->cb;
 	struct ofono_error error;
+	struct ofono_modem *modem = cbd->data;
+	struct xmm7xxx_data *data = ofono_modem_get_data(modem);
 
 	decode_at_error(&error, g_at_result_final_response(result));
+
+	if (data->enable_euicc == TRUE && data->stk_enable == TRUE)
+		g_at_chat_send(data->chat, "AT+CFUN=16", none_prefix,
+							NULL, NULL, NULL);
+
 	cb(&error, cbd->data);
 }
 
@@ -1245,6 +1597,7 @@ static void xmm7xxx_set_online(struct ofono_modem *modem, ofono_bool_t online,
 	char const *command = online ? "AT+CFUN=1" : "AT+CFUN=4";
 
 	DBG("modem %p %s", modem, online ? "online" : "offline");
+	data->stk_enable = online;
 
 	if (g_at_chat_send(data->chat, command, none_prefix,
 					set_online_cb, cbd, g_free) > 0)
@@ -1269,18 +1622,50 @@ static void xmm7xxx_post_online(struct ofono_modem *modem)
 	struct xmm7xxx_data *data = ofono_modem_get_data(modem);
 	struct ofono_gprs *gprs;
 	struct ofono_gprs_context *gc;
+	const char *interface = NULL;
 
 	DBG("%p", modem);
+
+	ofono_phonebook_create(modem, 0, "atmodem", data->chat);
+	ofono_sms_create(modem, 0, "atmodem", data->chat);
 
 	ofono_netreg_create(modem, OFONO_VENDOR_IFX, "atmodem", data->chat);
 
 	gprs = ofono_gprs_create(modem, OFONO_VENDOR_IFX, "atmodem",
 					data->chat);
+
+	interface = ofono_modem_get_string(modem, "NetworkInterface");
 	gc = ofono_gprs_context_create(modem, OFONO_VENDOR_XMM, "ifxmodem",
 					data->chat);
 
-	if (gprs && gc)
+	if (gprs && gc) {
 		ofono_gprs_add_context(gprs, gc);
+		ofono_gprs_context_set_interface(gc, interface);
+	}
+
+	interface = ofono_modem_get_string(modem, "NetworkInterface2");
+
+	if (interface) {
+		gc = ofono_gprs_context_create(modem, OFONO_VENDOR_XMM,
+						"ifxmodem", data->chat);
+
+		if (gprs && gc) {
+			ofono_gprs_add_context(gprs, gc);
+			ofono_gprs_context_set_interface(gc, interface);
+		}
+	}
+
+	interface = ofono_modem_get_string(modem, "NetworkInterface3");
+
+	if (interface) {
+		gc = ofono_gprs_context_create(modem, OFONO_VENDOR_XMM,
+						"ifxmodem", data->chat);
+
+		if (gprs && gc) {
+			ofono_gprs_add_context(gprs, gc);
+			ofono_gprs_context_set_interface(gc, interface);
+		}
+	}
 
 	ofono_ims_create(modem, "xmm7modem", data->chat);
 	ofono_netmon_create(modem, 0, "xmm7modem", data->chat);

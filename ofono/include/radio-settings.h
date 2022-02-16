@@ -61,8 +61,7 @@ typedef void (*ofono_radio_settings_rat_mode_set_cb_t)(
 						void *data);
 typedef void (*ofono_radio_settings_rat_mode_query_cb_t)(
 					const struct ofono_error *error,
-					enum ofono_radio_access_mode mode,
-					void *data);
+					int mode, void *data);
 
 typedef void (*ofono_radio_settings_band_set_cb_t)(
 						const struct ofono_error *error,
@@ -94,8 +93,7 @@ struct ofono_radio_settings_driver {
 	void (*query_rat_mode)(struct ofono_radio_settings *rs,
 				ofono_radio_settings_rat_mode_query_cb_t cb,
 				void *data);
-	void (*set_rat_mode)(struct ofono_radio_settings *rs,
-				enum ofono_radio_access_mode mode,
+	void (*set_rat_mode)(struct ofono_radio_settings *rs, unsigned int mode,
 				ofono_radio_settings_rat_mode_set_cb_t cb,
 				void *data);
 	void (*query_band)(struct ofono_radio_settings *rs,

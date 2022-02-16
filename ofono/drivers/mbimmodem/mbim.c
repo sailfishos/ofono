@@ -183,8 +183,7 @@ static struct mbim_message *message_assembly_add(
 	struct message_assembly_node *node;
 	struct mbim_message *message;
 
-	if (unlikely(type != MBIM_COMMAND_DONE &&
-				type != MBIM_INDICATE_STATUS_MSG))
+	if (type != MBIM_COMMAND_DONE && type != MBIM_INDICATE_STATUS_MSG)
 		return NULL;
 
 	node = l_queue_find(assembly->transactions,
@@ -894,7 +893,7 @@ struct mbim_device *mbim_device_new(int fd, uint32_t max_segment_size)
 {
 	struct mbim_device *device;
 
-	if (unlikely(fd < 0))
+	if (fd < 0)
 		return NULL;
 
 	device = l_new(struct mbim_device, 1);
@@ -926,7 +925,7 @@ struct mbim_device *mbim_device_new(int fd, uint32_t max_segment_size)
 
 struct mbim_device *mbim_device_ref(struct mbim_device *device)
 {
-	if (unlikely(!device))
+	if (!device)
 		return NULL;
 
 	__sync_fetch_and_add(&device->ref_count, 1);
@@ -936,7 +935,7 @@ struct mbim_device *mbim_device_ref(struct mbim_device *device)
 
 void mbim_device_unref(struct mbim_device *device)
 {
-	if (unlikely(!device))
+	if (!device)
 		return;
 
 	if (__sync_sub_and_fetch(&device->ref_count, 1))
@@ -966,7 +965,7 @@ void mbim_device_unref(struct mbim_device *device)
 
 bool mbim_device_shutdown(struct mbim_device *device)
 {
-	if (unlikely(!device))
+	if (!device)
 		return false;
 
 	l_io_set_read_handler(device->io, close_read_handler, device, NULL);
@@ -978,7 +977,7 @@ bool mbim_device_shutdown(struct mbim_device *device)
 
 bool mbim_device_set_max_outstanding(struct mbim_device *device, uint32_t max)
 {
-	if (unlikely(!device))
+	if (!device)
 		return false;
 
 	device->max_outstanding = max;
@@ -990,7 +989,7 @@ bool mbim_device_set_disconnect_handler(struct mbim_device *device,
 					void *user_data,
 					mbim_device_destroy_func_t destroy)
 {
-	if (unlikely(!device))
+	if (!device)
 		return false;
 
 	if (device->disconnect_destroy)
@@ -1007,7 +1006,7 @@ bool mbim_device_set_debug(struct mbim_device *device,
 				mbim_device_debug_func_t func, void *user_data,
 				mbim_device_destroy_func_t destroy)
 {
-	if (unlikely(!device))
+	if (!device)
 		return false;
 
 	if (device->debug_destroy)
@@ -1022,7 +1021,7 @@ bool mbim_device_set_debug(struct mbim_device *device,
 
 bool mbim_device_set_close_on_unref(struct mbim_device *device, bool do_close)
 {
-	if (unlikely(!device))
+	if (!device)
 		return false;
 
 	if (!device->io)
@@ -1037,7 +1036,7 @@ bool mbim_device_set_ready_handler(struct mbim_device *device,
 					void *user_data,
 					mbim_device_destroy_func_t destroy)
 {
-	if (unlikely(!device))
+	if (!device)
 		return false;
 
 	if (device->ready_destroy)
@@ -1058,7 +1057,7 @@ uint32_t mbim_device_send(struct mbim_device *device, uint32_t gid,
 {
 	struct pending_command *pending;
 
-	if (unlikely(!device || !message))
+	if (!device || !message)
 		return 0;
 
 	pending = l_new(struct pending_command, 1);
@@ -1088,7 +1087,7 @@ bool mbim_device_cancel(struct mbim_device *device, uint32_t tid)
 {
 	struct pending_command *pending;
 
-	if (unlikely(!device))
+	if (!device)
 		return false;
 
 	pending = l_queue_remove_if(device->pending_commands,
@@ -1112,7 +1111,7 @@ bool mbim_device_cancel(struct mbim_device *device, uint32_t tid)
 
 bool mbim_device_cancel_group(struct mbim_device *device, uint32_t gid)
 {
-	if (unlikely(!device))
+	if (!device)
 		return false;
 
 	l_queue_foreach_remove(device->pending_commands,
@@ -1135,7 +1134,7 @@ uint32_t mbim_device_register(struct mbim_device *device, uint32_t gid,
 	struct notification *notification;
 	uint32_t id;
 
-	if (unlikely(!device))
+	if (!device)
 		return 0;
 
 	id = device->next_notification;
@@ -1163,7 +1162,7 @@ bool mbim_device_unregister(struct mbim_device *device, uint32_t id)
 {
 	struct notification *notification;
 
-	if (unlikely(!device))
+	if (!device)
 		return false;
 
 	if (device->in_notify) {
@@ -1192,7 +1191,7 @@ bool mbim_device_unregister_group(struct mbim_device *device, uint32_t gid)
 	const struct l_queue_entry *entry;
 	bool r;
 
-	if (unlikely(!device))
+	if (!device)
 		return false;
 
 	if (!device->in_notify)

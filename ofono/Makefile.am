@@ -267,6 +267,7 @@ builtin_sources += 	drivers/atmodem/atmodem.h \
 			drivers/atmodem/cbs.c \
 			drivers/atmodem/call-forwarding.c \
 			drivers/atmodem/call-meter.c \
+			drivers/atmodem/network-registration.h \
 			drivers/atmodem/network-registration.c \
 			drivers/atmodem/sim.c \
 			drivers/atmodem/stk.c \
@@ -404,6 +405,7 @@ builtin_sources += drivers/atmodem/atutil.h \
 			drivers/ubloxmodem/ubloxmodem.h \
 			drivers/ubloxmodem/ubloxmodem.c \
 			drivers/ubloxmodem/gprs-context.c \
+			drivers/ubloxmodem/network-registration.c \
 			drivers/ubloxmodem/netmon.c \
 			drivers/ubloxmodem/lte.c
 
@@ -413,7 +415,10 @@ builtin_sources += drivers/atmodem/atutil.h \
 			drivers/gemaltomodem/gemaltomodem.h \
 			drivers/gemaltomodem/gemaltomodem.c \
 			drivers/gemaltomodem/location-reporting.c \
-			drivers/gemaltomodem/voicecall.c
+			drivers/gemaltomodem/voicecall.c \
+			drivers/gemaltomodem/gprs-context.c \
+			drivers/gemaltomodem/radio-settings.c \
+			drivers/gemaltomodem/netmon.c
 
 builtin_modules += xmm7modem
 builtin_sources += drivers/atmodem/atutil.h \
@@ -538,6 +543,9 @@ builtin_sources += plugins/connman.c
 
 builtin_modules += mnclength
 builtin_sources += plugins/mnclength.c
+
+builtin_modules += droid
+builtin_sources += plugins/droid.c
 
 if BLUETOOTH
 if BLUEZ4
@@ -696,6 +704,7 @@ endif
 sbin_PROGRAMS = src/ofonod
 
 src_ofonod_SOURCES = $(builtin_sources) $(gatchat_sources) src/ofono.ver \
+			linux/gsmmux.h linux/gpio.h src/missing.h \
 			src/main.c src/ofono.h src/log.c src/plugin.c \
 			src/modem.c src/common.h src/common.c \
 			src/manager.c src/dbus.c src/util.h src/util.c \

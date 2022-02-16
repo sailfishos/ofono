@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <errno.h>
 
+#include "idmap.h"
 #include <glib.h>
 
 #include <ofono/log.h>
@@ -41,17 +42,62 @@
 #include "atmodem.h"
 #include "vendor.h"
 
+#define MAX_CONTEXTS 255
+
 static const char *cgreg_prefix[] = { "+CGREG:", NULL };
+static const char *cgerep_prefix[] = { "+CGEREP:", NULL };
 static const char *cgdcont_prefix[] = { "+CGDCONT:", NULL };
+static const char *cgact_prefix[] = { "+CGACT:", NULL };
 static const char *none_prefix[] = { NULL };
 
 struct gprs_data {
 	GAtChat *chat;
 	unsigned int vendor;
-	unsigned int last_auto_context_id;
+	int last_auto_context_id;
 	gboolean telit_try_reattach;
 	int attached;
 };
+
+struct list_contexts_data
+{
+	struct ofono_gprs *gprs;
+	void *cb;
+	void *data;
+	struct idmap *active_cids;
+	int ref_count;
+};
+
+static struct list_contexts_data * list_contexts_data_new(
+				struct ofono_gprs *gprs, void *cb, void *data)
+{
+	struct list_contexts_data *ret;
+
+	ret = g_new0(struct list_contexts_data, 1);
+	ret->ref_count = 1;
+	ret->gprs = gprs;
+	ret->cb = cb;
+	ret->data = data;
+
+	return ret;
+}
+
+static struct list_contexts_data * list_contexts_data_ref(
+						struct list_contexts_data *ld)
+{
+	ld->ref_count++;
+	return ld;
+}
+
+static void list_contexts_data_unref(gpointer user_data)
+{
+	struct list_contexts_data *ld = user_data;
+
+	if (--ld->ref_count)
+		return;
+
+	idmap_free(ld->active_cids);
+	g_free(ld);
+}
 
 static void at_cgatt_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
@@ -145,14 +191,43 @@ static void at_gprs_registration_status(struct ofono_gprs *gprs,
 	CALLBACK_WITH_FAILURE(cb, -1, data);
 }
 
+static void at_cgdcont_parse(struct ofono_gprs *gprs, GAtResult *result,
+				struct idmap *cids)
+{
+	GAtResultIter iter;
+
+	g_at_result_iter_init(&iter, result);
+
+	while (g_at_result_iter_next(&iter, "+CGDCONT:")) {
+		int read_cid;
+		const char *apn = NULL;
+
+		if (!g_at_result_iter_next_number(&iter, &read_cid))
+			break;
+
+		if (!idmap_find(cids, read_cid))
+			continue;
+
+		/* ignore protocol */
+		g_at_result_iter_skip_next(&iter);
+
+		g_at_result_iter_next_string(&iter, &apn);
+
+		if (apn)
+			ofono_gprs_cid_activated(gprs, read_cid, apn);
+		else
+			ofono_warn("cid %d: Activated but no apn present",
+					read_cid);
+	}
+}
+
 static void at_cgdcont_read_cb(gboolean ok, GAtResult *result,
 				gpointer user_data)
 {
 	struct ofono_gprs *gprs = user_data;
 	struct gprs_data *gd = ofono_gprs_get_data(gprs);
 	int activated_cid = gd->last_auto_context_id;
-	const char *apn = NULL;
-	GAtResultIter iter;
+	struct idmap *cids;
 
 	DBG("ok %d", ok);
 
@@ -161,30 +236,108 @@ static void at_cgdcont_read_cb(gboolean ok, GAtResult *result,
 		return;
 	}
 
+	if (activated_cid == -1) {
+		DBG("Context got deactivated while calling CGDCONT");
+		return;
+	}
+
+	cids = idmap_new(activated_cid);
+
+	idmap_take(cids, activated_cid);
+
+	at_cgdcont_parse(gprs, result, cids);
+
+	idmap_free(cids);
+}
+
+static void at_cgdcont_act_read_cb(gboolean ok, GAtResult *result,
+					gpointer user_data)
+{
+	struct list_contexts_data *ld = user_data;
+	ofono_gprs_cb_t cb = ld->cb;
+	struct ofono_error error;
+
+	decode_at_error(&error, g_at_result_final_response(result));
+
+	if (!ok)
+		ofono_warn("Can't read CGDCONT context.");
+	else
+		at_cgdcont_parse(ld->gprs, result, ld->active_cids);
+
+	cb(&error, ld->data);
+}
+
+static void at_cgact_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct list_contexts_data *ld = user_data;
+	struct gprs_data *gd = ofono_gprs_get_data(ld->gprs);
+	ofono_gprs_cb_t cb = ld->cb;
+	struct ofono_error error;
+	GAtResultIter iter;
+
+	decode_at_error(&error, g_at_result_final_response(result));
+
+	if (!ok) {
+		ofono_warn("Can't read CGACT contexts.");
+
+		cb(&error, ld->data);
+
+		return;
+	}
+
 	g_at_result_iter_init(&iter, result);
 
-	while (g_at_result_iter_next(&iter, "+CGDCONT:")) {
-		int read_cid;
+	while (g_at_result_iter_next(&iter, "+CGACT:")) {
+		int read_cid = -1;
+		int read_status = -1;
 
 		if (!g_at_result_iter_next_number(&iter, &read_cid))
 			break;
 
-		if (read_cid != activated_cid)
+		if (!g_at_result_iter_next_number(&iter, &read_status))
+			break;
+
+		if (read_status != 1)
 			continue;
 
-		/* ignore protocol */
-		g_at_result_iter_skip_next(&iter);
+		/* Flag this as auto context as it was obviously active */
+		if (gd->last_auto_context_id == -1)
+			gd->last_auto_context_id = read_cid;
 
-		g_at_result_iter_next_string(&iter, &apn);
+		if (!ld->active_cids)
+			ld->active_cids = idmap_new(MAX_CONTEXTS);
 
-		break;
+		idmap_take(ld->active_cids, read_cid);
 	}
 
-	if (apn)
-		ofono_gprs_cid_activated(gprs, activated_cid, apn);
-	else
-		ofono_warn("cid %u: Received activated but no apn present",
-				activated_cid);
+	if (ld->active_cids != NULL) {
+		if (g_at_chat_send(gd->chat, "AT+CGDCONT?", cgdcont_prefix,
+					at_cgdcont_act_read_cb, ld,
+					list_contexts_data_unref)) {
+			list_contexts_data_ref(ld);
+			return;
+		}
+
+		CALLBACK_WITH_FAILURE(cb, ld->data);
+	} else {
+		/* No active contexts found */
+		cb(&error, ld->data);
+	}
+}
+
+static void at_gprs_list_active_contexts(struct ofono_gprs *gprs,
+						ofono_gprs_cb_t cb, void *data)
+{
+	struct gprs_data *gd = ofono_gprs_get_data(gprs);
+	struct list_contexts_data *ld = list_contexts_data_new(gprs, cb, data);
+
+	if (g_at_chat_send(gd->chat, "AT+CGACT?", cgact_prefix,
+				at_cgact_cb, ld, list_contexts_data_unref))
+		return;
+
+	list_contexts_data_unref(ld);
+
+	CALLBACK_WITH_FAILURE(cb, data);
 }
 
 static void cgreg_notify(GAtResult *result, gpointer user_data)
@@ -251,6 +404,12 @@ static void cgev_notify(GAtResult *result, gpointer user_data)
 
 		g_at_chat_send(gd->chat, "AT+CGDCONT?", cgdcont_prefix,
 				at_cgdcont_read_cb, gprs, NULL);
+	} else if (g_str_has_prefix(event, "ME PDN DEACT")) {
+		int context_id;
+		sscanf(event, "%*s %*s %*s %u", &context_id);
+		/* Indicate that this cid is not activated anymore */
+		if (gd->last_auto_context_id == context_id)
+			gd->last_auto_context_id = -1;
 	}
 }
 
@@ -455,7 +614,6 @@ static void gprs_initialized(gboolean ok, GAtResult *result, gpointer user_data)
 						FALSE, gprs, NULL);
 		break;
 	case OFONO_VENDOR_UBLOX:
-	case OFONO_VENDOR_UBLOX_TOBY_L2:
 		g_at_chat_register(gd->chat, "+UREG:", ublox_ureg_notify,
 						FALSE, gprs, NULL);
 		g_at_chat_send(gd->chat, "AT+UREG=1", none_prefix,
@@ -466,6 +624,9 @@ static void gprs_initialized(gboolean ok, GAtResult *result, gpointer user_data)
 						FALSE, gprs, NULL);
 		g_at_chat_send(gd->chat, "AT#PSNT=1", none_prefix,
 						NULL, NULL, NULL);
+		break;
+	case OFONO_VENDOR_QUECTEL_EC2X:
+	case OFONO_VENDOR_QUECTEL_SERIAL:
 		break;
 	default:
 		g_at_chat_register(gd->chat, "+CPSB:", cpsb_notify,
@@ -486,6 +647,65 @@ static void gprs_initialized(gboolean ok, GAtResult *result, gpointer user_data)
 	}
 
 	ofono_gprs_register(gprs);
+}
+
+static void at_cgerep_test_cb(gboolean ok, GAtResult *result,
+				gpointer user_data)
+{
+	struct ofono_gprs *gprs = user_data;
+	struct gprs_data *gd = ofono_gprs_get_data(gprs);
+	GAtResultIter iter;
+	int min, max, arg1 = 0, arg2 = 0;
+	gboolean two_arguments = TRUE;
+	char buf[20];
+
+	if (!ok) {
+		ofono_error("Error querying AT+CGEREP=? Failing...");
+		ofono_gprs_remove(gprs);
+		return;
+	}
+
+	g_at_result_iter_init(&iter, result);
+
+	g_at_result_iter_next(&iter, "+CGEREP:");
+
+	if (!g_at_result_iter_open_list(&iter)) {
+		ofono_error("Malformed reply from AT+CGEREP=? Failing...");
+		ofono_gprs_remove(gprs);
+		return;
+	}
+
+	while (g_at_result_iter_next_range(&iter, &min, &max)) {
+		if ((min <= 1) && (max >= 1))
+			arg1 = 1;
+
+		if ((min <= 2) && (max >= 2))
+			arg1 = 2;
+	}
+
+	if (!g_at_result_iter_close_list(&iter))
+		goto out;
+
+	if (!g_at_result_iter_open_list(&iter)) {
+		two_arguments = FALSE;
+		goto out;
+	}
+
+	while (g_at_result_iter_next_range(&iter, &min, &max)) {
+		if ((min <= 1) && (max >= 1))
+			arg2 = 1;
+	}
+
+	g_at_result_iter_close_list(&iter);
+
+out:
+	if (two_arguments)
+		sprintf(buf, "AT+CGEREP=%u,%u", arg1, arg2);
+	else
+		sprintf(buf, "AT+CGEREP=%u", arg1);
+
+	g_at_chat_send(gd->chat, buf, none_prefix, gprs_initialized, gprs,
+		NULL);
 }
 
 static void at_cgreg_test_cb(gboolean ok, GAtResult *result,
@@ -542,8 +762,8 @@ retry:
 			gprs_initialized, gprs, NULL);
 		break;
 	default:
-		g_at_chat_send(gd->chat, "AT+CGEREP=2,1", none_prefix,
-			gprs_initialized, gprs, NULL);
+		g_at_chat_send(gd->chat, "AT+CGEREP=?", cgerep_prefix,
+			at_cgerep_test_cb, gprs, NULL);
 		break;
 	}
 
@@ -622,6 +842,7 @@ static int at_gprs_probe(struct ofono_gprs *gprs,
 
 	gd->chat = g_at_chat_clone(chat);
 	gd->vendor = vendor;
+	gd->last_auto_context_id = -1;
 
 	ofono_gprs_set_data(gprs, gd);
 
@@ -647,6 +868,7 @@ static const struct ofono_gprs_driver driver = {
 	.remove			= at_gprs_remove,
 	.set_attached		= at_gprs_set_attached,
 	.attached_status	= at_gprs_registration_status,
+	.list_active_contexts	= at_gprs_list_active_contexts,
 };
 
 void at_gprs_init(void)

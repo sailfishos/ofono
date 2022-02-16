@@ -42,6 +42,8 @@ struct netreg_data {
 	struct qmi_service *nas;
 	struct ofono_network_operator operator;
 	uint8_t current_rat;
+	int lac;
+	int cellid;
 	bool is_roaming;
 };
 
@@ -126,10 +128,18 @@ static bool extract_ss_info(struct qmi_result *result, int *status,
 
 	plmn = qmi_result_get(result, QMI_NAS_RESULT_CURRENT_PLMN, &len);
 	if (plmn) {
-		snprintf(operator->mcc, OFONO_MAX_MCC_LENGTH + 1, "%03d",
-						GUINT16_FROM_LE(plmn->mcc));
-		snprintf(operator->mnc, OFONO_MAX_MNC_LENGTH + 1, "%02d",
-						GUINT16_FROM_LE(plmn->mnc));
+		uint16_t mcc = GUINT16_FROM_LE(plmn->mcc);
+		uint16_t mnc = GUINT16_FROM_LE(plmn->mnc);
+
+		if (mcc > 999)
+			mcc = 999;
+
+		if (mnc > 999)
+			mnc = 999;
+
+		snprintf(operator->mcc, OFONO_MAX_MCC_LENGTH + 1, "%03d", mcc);
+		snprintf(operator->mnc, OFONO_MAX_MNC_LENGTH + 1, "%03d", mnc);
+
 		opname_len = plmn->desc_len;
 		if (opname_len > OFONO_MAX_OPERATOR_NAME_LENGTH)
 			opname_len = OFONO_MAX_OPERATOR_NAME_LENGTH;
@@ -166,6 +176,31 @@ static bool extract_ss_info(struct qmi_result *result, int *status,
 	return true;
 }
 
+static int remember_ss_info(struct netreg_data *data, int status, int lac,
+					int cellid, enum roaming_status roaming)
+{
+	if (roaming == ROAMING_STATUS_ON)
+		data->is_roaming = true;
+	else if (roaming == ROAMING_STATUS_OFF)
+		data->is_roaming = false;
+
+	if (status == QMI_NAS_REGISTRATION_STATE_REGISTERED) {
+		if (lac >= 0)
+			data->lac = lac;
+		if (cellid >= 0)
+			data->cellid = cellid;
+	} else {
+		data->lac = -1;
+		data->cellid = -1;
+	}
+
+	if (status == QMI_NAS_REGISTRATION_STATE_REGISTERED &&
+							data->is_roaming)
+		status = NETWORK_REGISTRATION_STATUS_ROAMING;
+
+	return status;
+}
+
 static void ss_info_notify(struct qmi_result *result, void *user_data)
 {
 	struct ofono_netreg *netreg = user_data;
@@ -183,16 +218,10 @@ static void ss_info_notify(struct qmi_result *result, void *user_data)
 							&data->operator))
 		return;
 
-	if (roaming == ROAMING_STATUS_ON)
-		data->is_roaming = true;
-	else if (roaming == ROAMING_STATUS_OFF)
-		data->is_roaming = false;
+	status = remember_ss_info(data, status, lac, cellid, roaming);
 
-	if (status == QMI_NAS_REGISTRATION_STATE_REGISTERED &&
-							data->is_roaming)
-		status = NETWORK_REGISTRATION_STATUS_ROAMING;
-
-	ofono_netreg_status_notify(netreg, status, lac, cellid, tech);
+	ofono_netreg_status_notify(netreg, status, data->lac, data->cellid,
+									tech);
 }
 
 static void get_ss_info_cb(struct qmi_result *result, void *user_data)
@@ -216,16 +245,10 @@ static void get_ss_info_cb(struct qmi_result *result, void *user_data)
 		return;
 	}
 
-	if (roaming == ROAMING_STATUS_ON)
-		data->is_roaming = true;
-	else if (roaming == ROAMING_STATUS_OFF)
-		data->is_roaming = false;
+	status = remember_ss_info(data, status, lac, cellid, roaming);
 
-	if (status == QMI_NAS_REGISTRATION_STATE_REGISTERED &&
-							data->is_roaming)
-		status = NETWORK_REGISTRATION_STATUS_ROAMING;
-
-	CALLBACK_WITH_SUCCESS(cb, status, lac, cellid, tech, cbd->data);
+	CALLBACK_WITH_SUCCESS(cb, status, data->lac, data->cellid, tech,
+								cbd->data);
 }
 
 static void qmi_registration_status(struct ofono_netreg *netreg,
@@ -296,11 +319,17 @@ static void scan_nets_cb(struct qmi_result *result, void *user_data)
 
 	for (i = 0; i < num; i++) {
 		const struct qmi_nas_network_info *netinfo = ptr + offset;
+		uint16_t mcc = GUINT16_FROM_LE(netinfo->mcc);
+		uint16_t mnc = GUINT16_FROM_LE(netinfo->mnc);
 
-		snprintf(list[i].mcc, OFONO_MAX_MCC_LENGTH + 1, "%03d",
-						GUINT16_FROM_LE(netinfo->mcc));
-		snprintf(list[i].mnc, OFONO_MAX_MNC_LENGTH + 1, "%02d",
-						GUINT16_FROM_LE(netinfo->mnc));
+		if (mcc > 999)
+			mcc = 999;
+
+		if (mnc > 999)
+			mnc = 999;
+
+		snprintf(list[i].mcc, OFONO_MAX_MCC_LENGTH + 1, "%03d", mcc);
+		snprintf(list[i].mnc, OFONO_MAX_MNC_LENGTH + 1, "%03d", mnc);
 		strncpy(list[i].name, netinfo->desc, netinfo->desc_len);
 		list[i].name[netinfo->desc_len] = '\0';
 
@@ -613,6 +642,8 @@ static int qmi_netreg_probe(struct ofono_netreg *netreg,
 
 	data->current_rat = QMI_NAS_NETWORK_RAT_NO_CHANGE;
 	data->is_roaming = false;
+	data->lac = -1;
+	data->cellid = -1;
 
 	ofono_netreg_set_data(netreg, data);
 

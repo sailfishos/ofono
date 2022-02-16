@@ -48,6 +48,8 @@
 #include <ofono/gprs.h>
 #include <ofono/gprs-context.h>
 #include <ofono/location-reporting.h>
+#include <ofono/netmon.h>
+#include <ofono/radio-settings.h>
 
 #include <drivers/atmodem/atutil.h>
 #include <drivers/atmodem/vendor.h>
@@ -58,6 +60,8 @@
 #define GEMALTO_MODEL_PHS8P	"0053"
 /* ALS3, PLS8-E, and PLS8-X family */
 #define GEMALTO_MODEL_ALS3_PLS8x	"0061"
+/* ELS81 modem */
+#define GEMALTO_MODEL_ELS81x   "005b"
 
 static const char *none_prefix[] = { NULL };
 static const char *sctm_prefix[] = { "^SCTM:", NULL };
@@ -586,22 +590,32 @@ static void gemalto_post_sim(struct ofono_modem *modem)
 	struct ofono_gprs *gprs;
 	struct ofono_gprs_context *gc;
 	const char *model = ofono_modem_get_string(modem, "Model");
+	const char *driver = NULL;
+	const char *iface = NULL;
 
 	DBG("%p", modem);
 
 	ofono_phonebook_create(modem, 0, "atmodem", data->app);
 
 	ofono_sms_create(modem, OFONO_VENDOR_GEMALTO, "atmodem", data->app);
+	ofono_radio_settings_create(modem, 0, "gemaltomodem", data->app);
 
 	gprs = ofono_gprs_create(modem, 0, "atmodem", data->app);
-	gc = ofono_gprs_context_create(modem, 0, "atmodem", data->mdm);
+
+	iface = ofono_modem_get_string(modem, "NetworkInterface");
+	if (iface) {
+		driver = "gemaltomodem";
+	} else {
+		driver = "atmodem";
+	}
+
+	gc = ofono_gprs_context_create(modem, 0, driver, data->app);
 
 	if (gprs && gc)
 		ofono_gprs_add_context(gprs, gc);
 
-	ofono_ussd_create(modem, 0, "atmodem", data->app);
-
-	if (!g_strcmp0(model, GEMALTO_MODEL_ALS3_PLS8x))
+	if (!g_strcmp0(model, GEMALTO_MODEL_ALS3_PLS8x) ||
+	    !g_strcmp0(model, GEMALTO_MODEL_ELS81x))
 		ofono_lte_create(modem, OFONO_VENDOR_GEMALTO,
 						"atmodem", data->app);
 }
@@ -609,6 +623,7 @@ static void gemalto_post_sim(struct ofono_modem *modem)
 static void gemalto_post_online(struct ofono_modem *modem)
 {
 	struct gemalto_data *data = ofono_modem_get_data(modem);
+	const char *model = ofono_modem_get_string(modem, "Model");
 
 	DBG("%p", modem);
 
@@ -621,6 +636,12 @@ static void gemalto_post_online(struct ofono_modem *modem)
 	ofono_call_settings_create(modem, 0, "atmodem", data->app);
 	ofono_call_meter_create(modem, 0, "atmodem", data->app);
 	ofono_call_barring_create(modem, 0, "atmodem", data->app);
+
+	ofono_ussd_create(modem, 0, "atmodem", data->app);
+
+	if (!g_strcmp0(model, GEMALTO_MODEL_ELS81x))
+		ofono_netmon_create(modem, OFONO_VENDOR_GEMALTO,
+					"gemaltomodem", data->app);
 }
 
 static struct ofono_modem_driver gemalto_driver = {

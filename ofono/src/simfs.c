@@ -40,6 +40,7 @@
 #include "simfs.h"
 #include "simutil.h"
 #include "storage.h"
+#include "missing.h"
 
 #define SIM_CACHE_MODE 0600
 #define SIM_CACHE_BASEPATH STORAGEDIR "/%s-%i"
@@ -1228,7 +1229,7 @@ int sim_fs_write(struct ofono_sim_context *context, int id,
 	op->cb = cb;
 	op->userdata = userdata;
 	op->is_read = FALSE;
-	op->buffer = g_memdup(data, length);
+	op->buffer = g_memdup2(data, length);
 	op->structure = structure;
 	op->length = length;
 	op->current = record;

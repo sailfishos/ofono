@@ -37,6 +37,7 @@
 #include "gatresult.h"
 
 #include "hsomodem.h"
+#include "src/missing.h"
 
 #define HSO_DISCONNECTED 0
 #define HSO_CONNECTED 1
@@ -128,7 +129,7 @@ static void hso_cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 		return;
 	}
 
-	ncbd = g_memdup(cbd, sizeof(struct cb_data));
+	ncbd = g_memdup2(cbd, sizeof(struct cb_data));
 
 	snprintf(buf, sizeof(buf), "AT_OWANCALL=%u,1,1", gcd->active_context);
 
@@ -150,7 +151,6 @@ static void hso_gprs_activate_primary(struct ofono_gprs_context *gc,
 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
 	struct cb_data *cbd = cb_data_new(cb, data);
 	char buf[AUTH_BUF_LENGTH];
-	int len;
 
 	/* IPv6 support not implemented */
 	if (ctx->proto != OFONO_GPRS_PROTO_IP)
@@ -173,11 +173,8 @@ static void hso_gprs_activate_primary(struct ofono_gprs_context *gc,
 				NULL, NULL, NULL) == 0)
 		goto error;
 
-	len = snprintf(buf, sizeof(buf), "AT+CGDCONT=%u,\"IP\"", ctx->cid);
-
-	if (ctx->apn)
-		snprintf(buf + len, sizeof(buf) - len - 3, ",\"%s\"",
-				ctx->apn);
+	snprintf(buf, sizeof(buf), "AT+CGDCONT=%u,\"IP\",\"%s\"",
+			ctx->cid, ctx->apn);
 
 	if (g_at_chat_send(gcd->chat, buf, none_prefix,
 				hso_cgdcont_cb, cbd, g_free) > 0)

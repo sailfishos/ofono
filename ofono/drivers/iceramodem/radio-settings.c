@@ -51,7 +51,7 @@ static void ipsys_query_cb(gboolean ok, GAtResult *result, gpointer user_data)
 {
 	struct cb_data *cbd = user_data;
 	ofono_radio_settings_rat_mode_query_cb_t cb = cbd->cb;
-	enum ofono_radio_access_mode mode;
+	unsigned int mode;
 	struct ofono_error error;
 	GAtResultIter iter;
 	int value;
@@ -121,7 +121,7 @@ static void ipsys_modify_cb(gboolean ok, GAtResult *result, gpointer user_data)
 }
 
 static void icera_set_rat_mode(struct ofono_radio_settings *rs,
-				enum ofono_radio_access_mode mode,
+				unsigned int mode,
 				ofono_radio_settings_rat_mode_set_cb_t cb,
 				void *data)
 {

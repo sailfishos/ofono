@@ -111,6 +111,7 @@ gboolean g_at_result_iter_next_unquoted_string(GAtResultIter *iter,
 	unsigned int pos;
 	unsigned int end;
 	unsigned int len;
+	unsigned int stripped;
 	char *line;
 
 	if (iter == NULL)
@@ -139,7 +140,12 @@ gboolean g_at_result_iter_next_unquoted_string(GAtResultIter *iter,
 	while (end < len && line[end] != ',' && line[end] != ')')
 		end += 1;
 
-	iter->buf[end] = '\0';
+	stripped = end;
+
+	while (line[stripped - 1] == ' ')
+		stripped -= 1;
+
+	iter->buf[stripped] = '\0';
 
 out:
 	iter->line_pos = skip_to_next_field(line, end, len);
@@ -225,6 +231,7 @@ gboolean g_at_result_iter_next_hexstring(GAtResultIter *iter,
 	if (line[pos] == ',') {
 		end = pos;
 		iter->buf[pos] = '\0';
+		*length = 0;
 		goto out;
 	}
 

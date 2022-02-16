@@ -419,6 +419,10 @@ static void sysinfo_enable_cb(gboolean ok, GAtResult *result,
 	g_at_chat_send(data->modem, "AT&C0", NULL, NULL, NULL, NULL);
 	g_at_chat_send(data->pcui, "AT&C0", NULL, NULL, NULL, NULL);
 
+	/* Restore settings after restart */
+	g_at_chat_send(data->modem, "AT&F0", NULL, NULL, NULL, NULL);
+	g_at_chat_send(data->pcui, "AT&F0", NULL, NULL, NULL, NULL);
+
 	/*
 	 * Ensure that the modem is using GSM character set and not IRA,
 	 * otherwise weirdness with umlauts and other non-ASCII characters
@@ -553,35 +557,14 @@ done:
 static GAtChat *open_device(struct ofono_modem *modem,
 				const char *key, char *debug)
 {
-	const char *device;
-	GIOChannel *channel;
-	GAtSyntax *syntax;
-	GAtChat *chat;
+	GAtChat *chat = at_util_open_device(modem, key, huawei_debug, debug,
+						NULL);
 
-	device = ofono_modem_get_string(modem, key);
-	if (device == NULL)
-		return NULL;
-
-	DBG("%s %s", key, device);
-
-	channel = g_at_tty_open(device, NULL);
-	if (channel == NULL)
-		return NULL;
-
-	syntax = g_at_syntax_new_gsm_permissive();
-	chat = g_at_chat_new(channel, syntax);
-	g_at_syntax_unref(syntax);
-
-	g_io_channel_unref(channel);
-
-	if (chat == NULL)
+	if (!chat)
 		return NULL;
 
 	g_at_chat_add_terminator(chat, "COMMAND NOT SUPPORT", -1, FALSE);
 	g_at_chat_add_terminator(chat, "TOO MANY PARAMETERS", -1, FALSE);
-
-	if (getenv("OFONO_AT_DEBUG"))
-		g_at_chat_set_debug(chat, huawei_debug, debug);
 
 	return chat;
 }
@@ -604,9 +587,6 @@ static void modem_disconnect(gpointer user_data)
 	g_at_chat_unref(data->modem);
 	data->modem = NULL;
 
-	/* close gprs context driver */
-	ofono_gprs_context_remove(data->gc);
-
 	/* reopen modem channel */
 	data->modem = open_device(modem, "Modem", "Modem: ");
 
@@ -614,6 +594,10 @@ static void modem_disconnect(gpointer user_data)
 		DBG("Can't reopen device");
 		return;
 	}
+
+	/* close previous gprs context driver */
+	if (data->gc)
+		ofono_gprs_context_remove(data->gc);
 
 	/* configure modem channel */
 	g_at_chat_set_disconnect_function(data->modem, modem_disconnect, modem);

@@ -40,6 +40,7 @@
 #include "smsutil.h"
 #include "storage.h"
 #include "voicecallagent.h"
+#include "missing.h"
 
 #define MAX_VOICE_CALLS 16
 
@@ -2798,7 +2799,7 @@ void ofono_voicecall_notify(struct ofono_voicecall *vc,
 
 	__ofono_modem_callid_hold(modem, call->id);
 
-	newcall = g_memdup(call, sizeof(struct ofono_call));
+	newcall = g_memdup2(call, sizeof(struct ofono_call));
 	if (newcall == NULL) {
 		ofono_error("Unable to allocate call");
 		goto error;
@@ -4032,7 +4033,7 @@ static void emulator_atd_cb(struct ofono_emulator *em,
 
 			emulator_dial(em, vc, num);
 		} else {
-			strncpy(number, str, len - 1);
+			memcpy(number, str, len - 1);
 			number[len - 1] = '\0';
 
 			emulator_dial(em, vc, number);
@@ -4468,6 +4469,9 @@ void __ofono_voicecall_tone_cancel(struct ofono_voicecall *vc, int id)
 	while ((entry = g_queue_peek_nth(vc->toneq, n++)) != NULL)
 		if (entry->id == id)
 			break;
+
+	if (!entry)
+		return;
 
 	tone_request_finish(vc, entry, 0, FALSE);
 

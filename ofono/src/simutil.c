@@ -33,6 +33,7 @@
 #include "simutil.h"
 #include "util.h"
 #include "smsutil.h"
+#include "missing.h"
 
 struct sim_eons {
 	struct sim_eons_operator_info *pnn_list;
@@ -763,6 +764,20 @@ unsigned char *comprehension_tlv_builder_get_data(
 	unsigned int len_size = CTLV_LEN_FIELD_SIZE(tlv[tag_size]);
 
 	return tlv + tag_size + len_size;
+}
+
+gboolean validate_utf8_tlv(const unsigned char *tlv)
+{
+	int len = tlv[1];
+
+	if (len == 0)
+		return FALSE;
+
+	/* support both null-terminated and non null-terminated TLV value */
+	if (tlv[len + 1] == '\0')
+		len -= 1;
+
+	return g_utf8_validate_len((const char *)tlv + 2, len, NULL);
 }
 
 static char *sim_network_name_parse(const unsigned char *buffer, int length,

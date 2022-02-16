@@ -48,6 +48,7 @@
 #include "if_caif.h"
 #include "caif_rtnl.h"
 #include "common.h"
+#include "src/missing.h"
 
 #define MAX_DNS 2
 #define IP_ADDR_LEN 20
@@ -259,7 +260,7 @@ static void ste_cgdcont_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	snprintf(buf, sizeof(buf), "AT*EPPSD=1,%x,%u",
 			gcd->channel_id, gcd->active_context);
 
-	ncbd = g_memdup(cbd, sizeof(struct cb_data));
+	ncbd = g_memdup2(cbd, sizeof(struct cb_data));
 
 	if (g_at_chat_send(gcd->chat, buf, NULL,
 				ste_eppsd_up_cb, ncbd, g_free) > 0)
@@ -277,7 +278,6 @@ static void ste_gprs_activate_primary(struct ofono_gprs_context *gc,
 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
 	struct cb_data *cbd = cb_data_new(cb, data);
 	char buf[AUTH_BUF_LENGTH];
-	int len;
 
 	/* IPv6 support not implemented */
 	if (ctx->proto != OFONO_GPRS_PROTO_IP)
@@ -291,11 +291,8 @@ static void ste_gprs_activate_primary(struct ofono_gprs_context *gc,
 		goto error;
 	}
 
-	len = snprintf(buf, sizeof(buf), "AT+CGDCONT=%u,\"IP\"", ctx->cid);
-
-	if (ctx->apn)
-		snprintf(buf + len, sizeof(buf) - len, ",\"%s\"",
-				ctx->apn);
+	snprintf(buf, sizeof(buf), "AT+CGDCONT=%u,\"IP\",\"%s\"",
+			ctx->cid, ctx->apn);
 
 	if (g_at_chat_send(gcd->chat, buf, none_prefix,
 				ste_cgdcont_cb, cbd, g_free) == 0)

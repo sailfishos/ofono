@@ -104,7 +104,7 @@ static enum ofono_radio_band_gsm band_gsm_from_huawei(unsigned int band)
 	size_t i;
 
 	if (band == HUAWEI_BAND_ANY)
-		return OFONO_RADIO_BAND_UMTS_ANY;
+		return OFONO_RADIO_BAND_GSM_ANY;
 
 	for (i = ARRAY_SIZE(huawei_band_gsm_table) - 1; i > 0; i--) {
 		if (huawei_band_gsm_table[i].band_huawei & band)
@@ -207,6 +207,10 @@ static void syscfgex_query_mode_cb(gboolean ok, GAtResult *result,
 				strstr(acqorder, "02") &&
 				strstr(acqorder, "03")))
 		mode = OFONO_RADIO_ACCESS_MODE_ANY;
+	else if (strstr(acqorder, "0302"))
+		mode = (OFONO_RADIO_ACCESS_MODE_LTE | OFONO_RADIO_ACCESS_MODE_UMTS);
+	else if (strstr(acqorder, "0201"))
+		mode = (OFONO_RADIO_ACCESS_MODE_UMTS | OFONO_RADIO_ACCESS_MODE_GSM);
 	else if (strstr(acqorder, "03"))
 		mode = OFONO_RADIO_ACCESS_MODE_LTE;
 	else if (strstr(acqorder, "02"))
@@ -281,6 +285,8 @@ static void syscfg_set_rat_mode(struct radio_settings_data *rsd,
 		break;
 	case OFONO_RADIO_ACCESS_MODE_LTE:
 		goto error;
+	default:
+		goto error;
 	}
 
 	snprintf(buf, sizeof(buf), "AT^SYSCFG=%u,%u,40000000,2,4",
@@ -318,7 +324,14 @@ static void syscfgex_set_rat_mode(struct radio_settings_data *rsd,
 	case OFONO_RADIO_ACCESS_MODE_LTE:
 		acqorder = "03";
 		break;
+	default:
+		break;
 	}
+
+	if (mode == (OFONO_RADIO_ACCESS_MODE_LTE | OFONO_RADIO_ACCESS_MODE_UMTS))
+		acqorder = "0302";
+	else if (mode == (OFONO_RADIO_ACCESS_MODE_UMTS | OFONO_RADIO_ACCESS_MODE_GSM))
+		acqorder = "0201";
 
 	snprintf(buf, sizeof(buf), atcmd, acqorder);
 
@@ -532,6 +545,7 @@ static void syscfgex_support_cb(gboolean ok, GAtResult *result,
 	if (!ok) {
 		g_at_chat_send(rsd->chat, "AT^SYSCFG=?", syscfg_prefix,
 					syscfg_support_cb, rs, NULL);
+		return;
 	}
 
 	rsd->syscfgex_cap = 1;

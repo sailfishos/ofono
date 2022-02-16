@@ -34,6 +34,7 @@
 
 #include "gatppp.h"
 #include "ppp.h"
+#include "missing.h"
 
 #define IPV6CP_SUPPORTED_CODES	((1 << PPPCP_CODE_TYPE_CONFIGURE_REQUEST) | \
 				(1 << PPPCP_CODE_TYPE_CONFIGURE_ACK) | \
@@ -160,7 +161,7 @@ static enum rcr_result ipv6cp_server_rcr(struct ipv6cp_data *ipv6cp,
 
 	if (len > 0) {
 		*new_len = len;
-		*new_options = g_memdup(nak_options, len);
+		*new_options = g_memdup2(nak_options, len);
 
 		return RCR_NAK;
 	}

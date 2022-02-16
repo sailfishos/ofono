@@ -1,5 +1,5 @@
 AC_PREREQ(2.60)
-AC_INIT(ofono, 1.28)
+AC_INIT(ofono, 1.32)
 
 AM_INIT_AUTOMAKE([foreign subdir-objects color-tests])
 AC_CONFIG_HEADERS(config.h)
@@ -28,7 +28,7 @@ m4_define([_LT_AC_TAGCONFIG], [])
 m4_ifdef([AC_LIBTOOL_TAGS], [AC_LIBTOOL_TAGS([])])
 
 AC_DISABLE_STATIC
-AC_PROG_LIBTOOL
+LT_INIT
 
 AC_ARG_ENABLE(optimization, AC_HELP_STRING([--disable-optimization],
 			[disable code optimization through compiler]), [
@@ -55,14 +55,22 @@ AC_ARG_ENABLE(pie, AC_HELP_STRING([--enable-pie],
 	fi
 ])
 
+AC_CHECK_FUNCS(explicit_bzero)
+AC_CHECK_FUNCS(rawmemchr)
+
 AC_CHECK_FUNC(signalfd, dummy=yes,
 			AC_MSG_ERROR(signalfd support is required))
 
 AC_CHECK_LIB(dl, dlopen, dummy=yes,
 			AC_MSG_ERROR(dynamic linking loader is required))
 
-PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.32, dummy=yes,
-				AC_MSG_ERROR(GLib >= 2.32 is required))
+PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.68, [
+	AC_DEFINE_UNQUOTED(HAVE_G_MEMDUP2, 1,
+			[Define to 1 if you have the `g_memdup2' function.])
+], [
+	PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.60, dummy=yes,
+				AC_MSG_ERROR(GLib >= 2.60 is required))
+])
 AC_SUBST(GLIB_CFLAGS)
 AC_SUBST(GLIB_LIBS)
 
@@ -76,8 +84,8 @@ PKG_CHECK_MODULES(GIO, gio-2.0, dummy=yes,
 GLIB_CFLAGS="$GLIB_CFLAGS $GIO_CFLAGS"
 GLIB_LIBS="$GLIB_LIBS $GIO_LIBS"
 
-PKG_CHECK_MODULES(DBUS, dbus-1 >= 1.4, dummy=yes,
-				AC_MSG_ERROR(D-Bus >= 1.4 is required))
+PKG_CHECK_MODULES(DBUS, dbus-1 >= 1.6, dummy=yes,
+				AC_MSG_ERROR(D-Bus >= 1.6 is required))
 AC_SUBST(DBUS_CFLAGS)
 AC_SUBST(DBUS_LIBS)
 

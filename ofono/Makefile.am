@@ -267,6 +267,7 @@ builtin_sources += 	drivers/atmodem/atmodem.h \
 			drivers/atmodem/cbs.c \
 			drivers/atmodem/call-forwarding.c \
 			drivers/atmodem/call-meter.c \
+			drivers/atmodem/network-registration.h \
 			drivers/atmodem/network-registration.c \
 			drivers/atmodem/sim.c \
 			drivers/atmodem/stk.c \
@@ -404,6 +405,7 @@ builtin_sources += drivers/atmodem/atutil.h \
 			drivers/ubloxmodem/ubloxmodem.h \
 			drivers/ubloxmodem/ubloxmodem.c \
 			drivers/ubloxmodem/gprs-context.c \
+			drivers/ubloxmodem/network-registration.c \
 			drivers/ubloxmodem/netmon.c \
 			drivers/ubloxmodem/lte.c
 
@@ -695,7 +697,8 @@ endif
 
 sbin_PROGRAMS = src/ofonod
 
-src_ofonod_SOURCES = $(builtin_sources) $(gatchat_sources) src/ofono.ver \
+src_ofonod_SOURCES = $(builtin_sources) $(gatchat_sources) \
+			linux/gsmmux.h linux/gpio.h src/ofono.ver \
 			src/main.c src/ofono.h src/log.c src/plugin.c \
 			src/modem.c src/common.h src/common.c \
 			src/manager.c src/dbus.c src/util.h src/util.c \

@@ -249,6 +249,7 @@ int main(int argc, char **argv)
 
 #ifdef HAVE_ELL
 	l_log_set_stderr();
+	l_debug("");
 	l_debug_enable("*");
 	l_main_init();
 

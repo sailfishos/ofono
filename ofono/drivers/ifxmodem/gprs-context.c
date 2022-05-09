@@ -44,6 +44,7 @@
 #define TUN_DEV "/dev/net/tun"
 
 #define STATIC_IP_NETMASK "255.255.255.255"
+#define IPV6_DEFAULT_PREFIX_LEN 8
 
 static const char *none_prefix[] = { NULL };
 static const char *xdns_prefix[] = { "+XDNS:", NULL };
@@ -352,10 +353,41 @@ static void cgcontrdp_cb(gboolean ok, GAtResult *result, gpointer user_data)
 
 	DBG("DNS: %s, %s\n", gcd->dns1, gcd->dns2);
 
-	if (!laddrnetmask || at_util_get_ipv4_address_and_netmask(laddrnetmask,
+	if (gcd->proto == OFONO_GPRS_PROTO_IP) {
+		if (!laddrnetmask ||
+			at_util_get_ipv4_address_and_netmask(laddrnetmask,
 					gcd->address, gcd->netmask) < 0) {
-		failed_setup(gc, NULL, TRUE);
-		return;
+			failed_setup(gc, NULL, TRUE);
+			return;
+		}
+
+		ofono_gprs_context_set_ipv4_address(gc, gcd->address, TRUE);
+
+		if (gcd->netmask[0])
+			ofono_gprs_context_set_ipv4_netmask(gc, gcd->netmask);
+
+		if (gcd->gateway[0])
+			ofono_gprs_context_set_ipv4_gateway(gc, gcd->gateway);
+
+		ofono_gprs_context_set_ipv4_dns_servers(gc, dns);
+	}
+
+	if (gcd->proto == OFONO_GPRS_PROTO_IPV6) {
+		if (!laddrnetmask ||
+			at_util_get_ipv6_address_and_netmask(laddrnetmask,
+					gcd->address, gcd->netmask) < 0) {
+			failed_setup(gc, NULL, TRUE);
+			return;
+		}
+
+		ofono_gprs_context_set_ipv6_address(gc, gcd->address);
+
+		if (gcd->gateway[0])
+			ofono_gprs_context_set_ipv6_gateway(gc, gcd->gateway);
+
+		ofono_gprs_context_set_ipv6_dns_servers(gc, dns);
+		ofono_gprs_context_set_ipv6_prefix_length(gc,
+						IPV6_DEFAULT_PREFIX_LEN);
 	}
 
 	if (gw)
@@ -373,17 +405,7 @@ static void cgcontrdp_cb(gboolean ok, GAtResult *result, gpointer user_data)
 	interface = ofono_gprs_context_get_interface(gc);
 	datapath = get_datapath(modem, interface);
 
-	ofono_gprs_context_set_ipv4_address(gc, gcd->address, TRUE);
-
-	if (gcd->netmask[0])
-		ofono_gprs_context_set_ipv4_netmask(gc, gcd->netmask);
-
-	if (gcd->gateway[0])
-		ofono_gprs_context_set_ipv4_gateway(gc, gcd->gateway);
-
-	ofono_gprs_context_set_ipv4_dns_servers(gc, dns);
-
-	snprintf(buf, sizeof(buf), "AT+XDATACHANNEL=1,1,\"%s\",\"%s\",2,%u",
+	snprintf(buf, sizeof(buf), "AT+XDATACHANNEL=1,1,\"%s\",\"%s\",0,%u",
 			ctrlpath, datapath, gcd->active_context);
 	g_at_chat_send(gcd->chat, buf, none_prefix, NULL, NULL, NULL);
 	snprintf(buf, sizeof(buf), "AT+CGDATA=\"M-RAW_IP\",%u",
@@ -539,9 +561,7 @@ static void ifx_gprs_activate_primary(struct ofono_gprs_context *gc,
 		break;
 	}
 
-	if (ctx->apn)
-		snprintf(buf + len, sizeof(buf) - len - 3,
-					",\"%s\"", ctx->apn);
+	snprintf(buf + len, sizeof(buf) - len - 3, ",\"%s\"", ctx->apn);
 
 	if (g_at_chat_send(gcd->chat, buf, none_prefix,
 				setup_cb, gc, NULL) > 0)

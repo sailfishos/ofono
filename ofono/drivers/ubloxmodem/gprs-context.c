@@ -321,7 +321,7 @@ static void ublox_send_uauthreq(struct ofono_gprs_context *gc,
 {
 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
 	char buf[UBLOX_MAX_USER_LEN + UBLOX_MAX_PASS_LEN + 32];
-	unsigned auth;
+	unsigned auth = 0;
 
 	switch (auth_method) {
 	case OFONO_GPRS_AUTH_METHOD_PAP:
@@ -387,6 +387,14 @@ static void ublox_gprs_activate_primary(struct ofono_gprs_context *gc,
 				ofono_gprs_context_cb_t cb, void *data)
 {
 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+
+	if (ublox_is_toby_l4(gcd->model)) {
+		/* TOBY L4 does not support IPv6 */
+		if (ctx->proto != OFONO_GPRS_PROTO_IP) {
+			CALLBACK_WITH_FAILURE(cb, data);
+			return;
+		}
+	}
 
 	/* IPv6 support not implemented */
 	if (ctx->proto != OFONO_GPRS_PROTO_IP) {

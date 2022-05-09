@@ -26,7 +26,8 @@
 enum ublox_flags {
 	UBLOX_F_TOBY_L2		= (1 << 0),
 	UBLOX_F_TOBY_L4		= (1 << 1),
-	UBLOX_F_HAVE_USBCONF	= (1 << 2),
+	UBLOX_F_LARA_R2		= (1 << 2),
+	UBLOX_F_HAVE_USBCONF	= (1 << 3),
 };
 
 struct ublox_model {
@@ -42,6 +43,9 @@ int ublox_is_toby_l4(const struct ublox_model *model);
 
 extern void ublox_gprs_context_init(void);
 extern void ublox_gprs_context_exit(void);
+
+void ublox_netreg_init(void);
+void ublox_netreg_exit(void);
 
 extern void ublox_netmon_init(void);
 extern void ublox_netmon_exit(void);

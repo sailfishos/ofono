@@ -43,12 +43,13 @@
 
 static const char *cgreg_prefix[] = { "+CGREG:", NULL };
 static const char *cgdcont_prefix[] = { "+CGDCONT:", NULL };
+static const char *cgact_prefix[] = { "+CGACT:", NULL };
 static const char *none_prefix[] = { NULL };
 
 struct gprs_data {
 	GAtChat *chat;
 	unsigned int vendor;
-	unsigned int last_auto_context_id;
+	int last_auto_context_id;
 	gboolean telit_try_reattach;
 	int attached;
 };
@@ -161,6 +162,11 @@ static void at_cgdcont_read_cb(gboolean ok, GAtResult *result,
 		return;
 	}
 
+	if (gd->last_auto_context_id == -1) {
+		DBG("Context got deactivated while calling CGDCONT");
+		return;
+	}
+
 	g_at_result_iter_init(&iter, result);
 
 	while (g_at_result_iter_next(&iter, "+CGDCONT:")) {
@@ -185,6 +191,48 @@ static void at_cgdcont_read_cb(gboolean ok, GAtResult *result,
 	else
 		ofono_warn("cid %u: Received activated but no apn present",
 				activated_cid);
+}
+
+static void at_cgact_cb(gboolean ok, GAtResult *result, gpointer user_data)
+{
+	struct ofono_gprs *gprs = user_data;
+	struct gprs_data *gd = ofono_gprs_get_data(gprs);
+	GAtResultIter iter;
+
+	DBG("ok %d", ok);
+
+	if (!ok) {
+		ofono_warn("Can't read CGACT contexts.");
+		return;
+	}
+
+	g_at_result_iter_init(&iter, result);
+
+	while (g_at_result_iter_next(&iter, "+CGACT:")) {
+		int read_cid = -1;
+		int read_status = -1;
+
+		if (!g_at_result_iter_next_number(&iter, &read_cid))
+			break;
+
+		if (!g_at_result_iter_next_number(&iter, &read_status))
+			break;
+
+		if (read_status != 1)
+			continue;
+
+		/* Flag this as auto context as it was obviously active */
+		if (gd->last_auto_context_id == 0)
+			gd->last_auto_context_id = read_cid;
+
+		if (read_cid != gd->last_auto_context_id)
+			continue;
+
+		g_at_chat_send(gd->chat, "AT+CGDCONT?", cgdcont_prefix,
+				at_cgdcont_read_cb, gprs, NULL);
+
+		break;
+	}
 }
 
 static void cgreg_notify(GAtResult *result, gpointer user_data)
@@ -251,6 +299,12 @@ static void cgev_notify(GAtResult *result, gpointer user_data)
 
 		g_at_chat_send(gd->chat, "AT+CGDCONT?", cgdcont_prefix,
 				at_cgdcont_read_cb, gprs, NULL);
+	} else if (g_str_has_prefix(event, "ME PDN DEACT")) {
+		int context_id;
+		sscanf(event, "%*s %*s %*s %u", &context_id);
+		/* Indicate that this cid is not activated anymore */
+		if (gd->last_auto_context_id == context_id)
+			gd->last_auto_context_id = -1;
 	}
 }
 
@@ -484,6 +538,10 @@ static void gprs_initialized(gboolean ok, GAtResult *result, gpointer user_data)
 		break;
 	}
 
+	/* Check if there is any already activated contexts at init */
+	g_at_chat_send(gd->chat, "AT+CGACT?", cgact_prefix,
+			at_cgact_cb, gprs, NULL);
+
 	ofono_gprs_register(gprs);
 }
 
@@ -621,6 +679,7 @@ static int at_gprs_probe(struct ofono_gprs *gprs,
 
 	gd->chat = g_at_chat_clone(chat);
 	gd->vendor = vendor;
+	gd->last_auto_context_id = -1;
 
 	ofono_gprs_set_data(gprs, gd);
 

@@ -40,10 +40,16 @@
 #include <ofono/gprs-context.h>
 #include <ofono/netmon.h>
 #include <ofono/lte.h>
+#include <ofono/sms.h>
 #include <ofono/voicecall.h>
+#include <ofono/call-forwarding.h>
+#include <ofono/call-settings.h>
+#include <ofono/call-meter.h>
+#include <ofono/call-barring.h>
+#include <ofono/message-waiting.h>
+#include <ofono/ussd.h>
 
 #include <drivers/atmodem/vendor.h>
-
 #include <drivers/ubloxmodem/ubloxmodem.h>
 
 static const char *uusbconf_prefix[] = { "+UUSBCONF:", NULL };
@@ -99,34 +105,8 @@ static void ublox_remove(struct ofono_modem *modem)
 static GAtChat *open_device(struct ofono_modem *modem,
 				const char *key, char *debug)
 {
-	const char *device;
-	GAtSyntax *syntax;
-	GIOChannel *channel;
-	GAtChat *chat;
-
-	device = ofono_modem_get_string(modem, key);
-	if (device == NULL)
-		return NULL;
-
-	DBG("%s %s", key, device);
-
-	channel = g_at_tty_open(device, NULL);
-	if (channel == NULL)
-		return NULL;
-
-	syntax = g_at_syntax_new_gsm_permissive();
-	chat = g_at_chat_new(channel, syntax);
-	g_at_syntax_unref(syntax);
-
-	g_io_channel_unref(channel);
-
-	if (chat == NULL)
-		return NULL;
-
-	if (getenv("OFONO_AT_DEBUG"))
-		g_at_chat_set_debug(chat, ublox_debug, debug);
-
-	return chat;
+	return at_util_open_device(modem, key, ublox_debug, debug,
+					NULL);
 }
 
 static void cfun_enable(gboolean ok, GAtResult *result, gpointer user_data)
@@ -383,9 +363,9 @@ static void ublox_post_sim(struct ofono_modem *modem)
 	struct ofono_gprs *gprs;
 	struct ofono_gprs_context *gc;
 	GAtChat *chat = data->modem ? data->modem : data->aux;
+	struct ofono_message_waiting *mw;
 	const char *driver;
-	/* Toby L2: Create same number of contexts as supported PDP contexts. */
-	int ncontexts = data->flags & UBLOX_DEVICE_F_HIGH_THROUGHPUT_MODE ? 8 : 1;
+	const char *iface;
 	int variant;
 
 	DBG("%p", modem);
@@ -393,40 +373,41 @@ static void ublox_post_sim(struct ofono_modem *modem)
 	gprs = ofono_gprs_create(modem, data->vendor_family, "atmodem",
 					data->aux);
 
-	if (ublox_is_toby_l4(data->model)) {
+	iface = ofono_modem_get_string(modem, "NetworkInterface");
+	if (iface) {
 		driver = "ubloxmodem";
 		variant = ublox_model_to_id(data->model);
-	} else if (ublox_is_toby_l2(data->model)) {
-		if (data->flags & UBLOX_DEVICE_F_HIGH_THROUGHPUT_MODE) {
-			driver = "ubloxmodem";
-			variant = ublox_model_to_id(data->model);
-		} else {
-			driver = "atmodem";
-			variant = OFONO_VENDOR_UBLOX;
-		}
 	} else {
 		driver = "atmodem";
 		variant = OFONO_VENDOR_UBLOX;
 	}
 
-	while (ncontexts) {
-		gc = ofono_gprs_context_create(modem, variant, driver, chat);
-
-		if (gprs && gc)
-			ofono_gprs_add_context(gprs, gc);
-
-		--ncontexts;
-	}
+	gc = ofono_gprs_context_create(modem, variant, driver, chat);
+	if (gprs && gc)
+		ofono_gprs_add_context(gprs, gc);
 
 	ofono_lte_create(modem,
 		ublox_model_to_id(data->model), "ubloxmodem", data->aux);
+
+	ofono_sms_create(modem, 0, "atmodem", data->aux);
+
+	ofono_ussd_create(modem, 0, "atmodem", data->aux);
+	ofono_call_forwarding_create(modem, 0, "atmodem", data->aux);
+	ofono_call_settings_create(modem, 0, "atmodem", data->aux);
+	ofono_call_meter_create(modem, 0, "atmodem", data->aux);
+	ofono_call_barring_create(modem, 0, "atmodem", data->aux);
+
+	mw = ofono_message_waiting_create(modem);
+	if (mw)
+		ofono_message_waiting_register(mw);
 }
 
 static void ublox_post_online(struct ofono_modem *modem)
 {
 	struct ublox_data *data = ofono_modem_get_data(modem);
 
-	ofono_netreg_create(modem, data->vendor_family, "atmodem", data->aux);
+	ofono_netreg_create(modem,
+		ublox_model_to_id(data->model), "ubloxmodem", data->aux);
 
 	ofono_netmon_create(modem, data->vendor_family, "ubloxmodem", data->aux);
 }

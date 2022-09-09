@@ -65,7 +65,9 @@ struct ofono_radio_settings {
 enum ofono_radio_access_mode ofono_radio_access_max_mode(
 					enum ofono_radio_access_mode mask)
 {
-	return	(mask & OFONO_RADIO_ACCESS_MODE_LTE) ?
+	return	(mask & OFONO_RADIO_ACCESS_MODE_NR) ?
+					OFONO_RADIO_ACCESS_MODE_NR :
+		(mask & OFONO_RADIO_ACCESS_MODE_LTE) ?
 					OFONO_RADIO_ACCESS_MODE_LTE :
 		(mask & OFONO_RADIO_ACCESS_MODE_UMTS) ?
 					OFONO_RADIO_ACCESS_MODE_UMTS :
@@ -86,6 +88,8 @@ const char *ofono_radio_access_mode_to_string(enum ofono_radio_access_mode m)
 		return "umts";
 	case OFONO_RADIO_ACCESS_MODE_LTE:
 		return "lte";
+	case OFONO_RADIO_ACCESS_MODE_NR:
+		return "nr";
 	default:
 		return NULL;
 	}
@@ -109,6 +113,9 @@ ofono_bool_t ofono_radio_access_mode_from_string(const char *str,
 		return TRUE;
 	} else if (g_str_equal(str, "lte")) {
 		*mode = OFONO_RADIO_ACCESS_MODE_LTE;
+		return TRUE;
+	} else if (g_str_equal(str, "nr")) {
+		*mode = OFONO_RADIO_ACCESS_MODE_NR;
 		return TRUE;
 	}
 
@@ -438,7 +445,7 @@ static void radio_available_rats_query_callback(const struct ofono_error *error,
 	struct ofono_radio_settings *rs = data;
 
 	if (error->type == OFONO_ERROR_TYPE_NO_ERROR)
-		rs->available_rats = available_rats & 0x7;
+		rs->available_rats = available_rats & 0xF;
 	else
 		DBG("Error while querying available rats");
 

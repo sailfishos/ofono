@@ -23,14 +23,17 @@ extern "C" {
 #endif
 
 #include <ofono/types.h>
+#include <stdint.h>
 
 enum ofono_cell_type {
 	OFONO_CELL_TYPE_GSM,
 	OFONO_CELL_TYPE_WCDMA,
-	OFONO_CELL_TYPE_LTE
+	OFONO_CELL_TYPE_LTE,
+	OFONO_CELL_TYPE_NR /* Since 1.29+git8 */
 };
 
 #define OFONO_CELL_INVALID_VALUE (INT_MAX)
+#define OFONO_CELL_INVALID_VALUE_INT64 (INT64_MAX)
 
 struct ofono_cell_info_gsm {
 	int mcc;            /* Mobile Country Code (0..999) */
@@ -70,6 +73,22 @@ struct ofono_cell_info_lte {
 	int timingAdvance;  /* (Distance = 300m/us) TS 36.321 */
 };
 
+/* Since 1.29+git8 */
+struct ofono_cell_info_nr {
+	int mcc;            /* Mobile Country Code (0..999) */
+	int mnc;            /* Mobile Network Code (0..999) */
+	int64_t nci;        /* NR Cell Identity */
+	int pci;            /* Physical cell id (0..1007) */
+	int tac;            /* Tracking area code */
+	int nrarfcn;        /* 22-bit NR Absolute RC Channel Number */
+	int ssRsrp;         /* SS Reference Signal Receive Power TS 38.215 */
+	int ssRsrq;         /* SS Reference Signal Receive Quality TS 38.215 and 38.133 */
+	int ssSinr;         /* SS Reference Signal-to-Noise Ratio TS 38.215 and 38.133*/
+	int csiRsrp;        /* CSI Reference Signal Receive Power TS 38.215 */
+	int csiRsrq;        /* CSI Reference Signal Receive Quality TS 38.215 */
+	int csiSinr;        /* CSI Reference Signal-to-Noise Ratio TS 38.215 and 38.133 */
+};
+
 typedef struct ofono_cell {
 	enum ofono_cell_type type;
 	ofono_bool_t registered;
@@ -77,6 +96,7 @@ typedef struct ofono_cell {
 		struct ofono_cell_info_gsm gsm;
 		struct ofono_cell_info_wcdma wcdma;
 		struct ofono_cell_info_lte lte;
+		struct ofono_cell_info_nr nr; /* Since 1.29+git8 */
 	} info;
 } *ofono_cell_ptr;
 

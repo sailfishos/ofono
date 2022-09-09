@@ -57,14 +57,19 @@ struct cell_property {
 	const char *name;
 	glong off;
 	int flag;
+	int type;
 };
 
 #define CELL_GSM_PROPERTY(value,name) \
-	{ #name, G_STRUCT_OFFSET(struct ofono_cell_info_gsm,name), value }
+	{ #name, G_STRUCT_OFFSET(struct ofono_cell_info_gsm,name), value, DBUS_TYPE_INT32 }
 #define CELL_WCDMA_PROPERTY(value,name) \
-	{ #name, G_STRUCT_OFFSET(struct ofono_cell_info_wcdma,name), value }
+	{ #name, G_STRUCT_OFFSET(struct ofono_cell_info_wcdma,name), value, DBUS_TYPE_INT32 }
 #define CELL_LTE_PROPERTY(value,name) \
-	{ #name, G_STRUCT_OFFSET(struct ofono_cell_info_lte,name), value }
+	{ #name, G_STRUCT_OFFSET(struct ofono_cell_info_lte,name), value, DBUS_TYPE_INT32 }
+#define CELL_NR_PROPERTY(value,name) \
+	{ #name, G_STRUCT_OFFSET(struct ofono_cell_info_nr,name), value, DBUS_TYPE_INT32 }
+#define CELL_NR_PROPERTY64(value,name) \
+	{ #name, G_STRUCT_OFFSET(struct ofono_cell_info_nr,name), value, DBUS_TYPE_INT64 }
 
 static const struct cell_property cell_gsm_properties [] = {
 	CELL_GSM_PROPERTY(0x001,mcc),
@@ -104,6 +109,21 @@ static const struct cell_property cell_lte_properties [] = {
 	CELL_LTE_PROPERTY(0x800,timingAdvance)
 };
 
+static const struct cell_property cell_nr_properties [] = {
+	CELL_NR_PROPERTY(0x001,mcc),
+	CELL_NR_PROPERTY(0x002,mnc),
+	CELL_NR_PROPERTY64(0x004,nci),
+	CELL_NR_PROPERTY(0x008,pci),
+	CELL_NR_PROPERTY(0x010,tac),
+	CELL_NR_PROPERTY(0x020,nrarfcn),
+	CELL_NR_PROPERTY(0x040,ssRsrp),
+	CELL_NR_PROPERTY(0x080,ssRsrq),
+	CELL_NR_PROPERTY(0x100,ssSinr),
+	CELL_NR_PROPERTY(0x200,csiRsrp),
+	CELL_NR_PROPERTY(0x400,csiRsrq),
+	CELL_NR_PROPERTY(0x800,csiSinr),
+};
+
 #define CELL_PROPERTY_REGISTERED 0x1000
 
 typedef void (*cell_info_dbus_append_fn)(DBusMessageIter *it,
@@ -124,6 +144,8 @@ static const char *cell_info_dbus_cell_type_str(enum ofono_cell_type type)
 		return "wcdma";
 	case OFONO_CELL_TYPE_LTE:
 		return "lte";
+	case OFONO_CELL_TYPE_NR:
+		return "nr";
 	default:
 		return "unknown";
 	}
@@ -142,6 +164,9 @@ static const struct cell_property *cell_info_dbus_cell_properties
 	case OFONO_CELL_TYPE_LTE:
 		*count = G_N_ELEMENTS(cell_lte_properties);
 		return cell_lte_properties;
+	case OFONO_CELL_TYPE_NR:
+		*count = G_N_ELEMENTS(cell_nr_properties);
+		return cell_nr_properties;
 	default:
 		*count = 0;
 		return NULL;
@@ -202,10 +227,18 @@ static void cell_info_dbus_append_properties(DBusMessageIter *it,
 
 	dbus_message_iter_open_container(it, DBUS_TYPE_ARRAY, "{sv}", &dict);
 	for (i = 0; i < n; i++) {
-		gint32 value = G_STRUCT_MEMBER(int, &cell->info, prop[i].off);
-		if (value != OFONO_CELL_INVALID_VALUE) {
-			ofono_dbus_dict_append(&dict, prop[i].name,
-				DBUS_TYPE_INT32, &value);
+		if (prop[i].type == DBUS_TYPE_INT64) {
+			gint64 value = G_STRUCT_MEMBER(gint64, &cell->info, prop[i].off);
+			if (value != OFONO_CELL_INVALID_VALUE_INT64) {
+				ofono_dbus_dict_append(&dict, prop[i].name,
+					DBUS_TYPE_INT64, &value);
+			}
+		} else {
+			gint32 value = G_STRUCT_MEMBER(int, &cell->info, prop[i].off);
+			if (value != OFONO_CELL_INVALID_VALUE) {
+				ofono_dbus_dict_append(&dict, prop[i].name,
+					DBUS_TYPE_INT32, &value);
+			}
 		}
 	}
 	dbus_message_iter_close_container(it, &dict);
@@ -375,11 +408,20 @@ static int cell_info_dbus_compare(const struct ofono_cell *c1,
 
 		for (i = 0; i < n; i++) {
 			const glong offset = prop[i].off;
-			gint32 v1 = G_STRUCT_MEMBER(int, &c1->info, offset);
-			gint32 v2 = G_STRUCT_MEMBER(int, &c2->info, offset);
+			if (prop[i].type == DBUS_TYPE_INT64) {
+				gint64 v1 = G_STRUCT_MEMBER(gint64, &c1->info, offset);
+				gint64 v2 = G_STRUCT_MEMBER(gint64, &c2->info, offset);
 
-			if (v1 != v2) {
-				mask |= prop[i].flag;
+				if (v1 != v2) {
+					mask |= prop[i].flag;
+				}
+			} else  {
+				gint32 v1 = G_STRUCT_MEMBER(int, &c1->info, offset);
+				gint32 v2 = G_STRUCT_MEMBER(int, &c2->info, offset);
+
+				if (v1 != v2) {
+					mask |= prop[i].flag;
+				}
 			}
 		}
 
@@ -427,7 +469,7 @@ static void cell_info_dbus_property_changed(CellInfoDBus *dbus,
 			ofono_dbus_clients_signal_property_changed(
 				dbus->clients, entry->path,
 				CELL_DBUS_INTERFACE, prop[i].name,
-				DBUS_TYPE_INT32,
+				prop[i].type,
 				G_STRUCT_MEMBER_P(&cell->info, prop[i].off));
 			mask &= ~prop[i].flag;
 		}

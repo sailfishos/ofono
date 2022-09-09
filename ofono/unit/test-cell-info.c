@@ -226,6 +226,35 @@ static void test_compare(void)
 	c2 = c1; c2.info.lte.timingAdvance++;
 	g_assert(!ofono_cell_compare_location(&c1, &c2));
 
+	/* NR */
+	c1.type = OFONO_CELL_TYPE_NR;
+	c2 = c1;
+	g_assert(!ofono_cell_compare_location(&c1, &c2));
+	c2 = c1; c2.info.nr.mcc++;
+	g_assert(ofono_cell_compare_location(&c1, &c2) < 0);
+	c2 = c1; c2.info.nr.mnc++;
+	g_assert(ofono_cell_compare_location(&c1, &c2) < 0);
+	c2 = c1; c2.info.nr.nci++;
+	g_assert(ofono_cell_compare_location(&c1, &c2) < 0);
+	c2 = c1; c2.info.nr.pci++;
+	g_assert(ofono_cell_compare_location(&c1, &c2) < 0);
+	c2 = c1; c2.info.nr.tac++;
+	g_assert(ofono_cell_compare_location(&c1, &c2) < 0);
+	/* Other attributes are not being compared */
+	c2 = c1; c2.info.nr.nrarfcn++;
+	g_assert(!ofono_cell_compare_location(&c1, &c2));
+	c2 = c1; c2.info.nr.ssRsrp++;
+	g_assert(!ofono_cell_compare_location(&c1, &c2));
+	c2 = c1; c2.info.nr.ssRsrq++;
+	g_assert(!ofono_cell_compare_location(&c1, &c2));
+	c2 = c1; c2.info.nr.ssSinr++;
+	g_assert(!ofono_cell_compare_location(&c1, &c2));
+	c2 = c1; c2.info.nr.csiRsrp++;
+	g_assert(!ofono_cell_compare_location(&c1, &c2));
+	c2 = c1; c2.info.nr.csiRsrq++;
+	g_assert(!ofono_cell_compare_location(&c1, &c2));
+	c2 = c1; c2.info.nr.csiSinr++;
+	g_assert(!ofono_cell_compare_location(&c1, &c2));
 	/* Unknown type */
 	c1.type = c2.type = (enum ofono_cell_type)-1;
 	g_assert(!ofono_cell_compare_location(&c1, &c2));

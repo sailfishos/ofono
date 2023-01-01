@@ -2665,9 +2665,9 @@ void ofono_voicecall_disconnected(struct ofono_voicecall *vc, int id,
 	if (l) {
 		/* Incoming call was disconnected in the process of being
 		 * filtered. voicecall_destroy cancels it. */
+		voicecall_destroy(l->data);
 		vc->incoming_filter_list = g_slist_delete_link
 					(vc->incoming_filter_list, l);
-		voicecall_destroy(l->data);
 		return;
 	}
 

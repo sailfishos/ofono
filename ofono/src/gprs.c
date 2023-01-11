@@ -305,6 +305,8 @@ static gboolean assign_context(struct pri_context *ctx, int use_cid)
 		return TRUE;
 	}
 
+	ctx->context.cid = 0;
+
 	return FALSE;
 }
 
@@ -820,8 +822,7 @@ static void pri_update_mms_context_settings(struct pri_context *ctx)
 	struct ofono_gprs_context *gc = ctx->context_driver;
 	struct context_settings *settings = gc->settings;
 
-	if (ctx->message_proxy)
-		settings->ipv4->proxy = g_strdup(ctx->message_proxy);
+	settings->ipv4->proxy = g_strdup(ctx->message_proxy);
 
 	if (!pri_parse_proxy(ctx, ctx->message_proxy))
 		pri_parse_proxy(ctx, ctx->message_center);
@@ -1459,7 +1460,7 @@ static DBusMessage *pri_set_message_proxy(struct pri_context *ctx,
 	if (strlen(proxy) > MAX_MESSAGE_PROXY_LENGTH)
 		return __ofono_error_invalid_format(msg);
 
-	if (ctx->message_proxy && g_str_equal(ctx->message_proxy, proxy))
+	if (g_str_equal(ctx->message_proxy, proxy))
 		return dbus_message_new_method_return(msg);
 
 	strcpy(ctx->message_proxy, proxy);
@@ -1488,7 +1489,7 @@ static DBusMessage *pri_set_message_center(struct pri_context *ctx,
 	if (strlen(center) > MAX_MESSAGE_CENTER_LENGTH)
 		return __ofono_error_invalid_format(msg);
 
-	if (ctx->message_center && g_str_equal(ctx->message_center, center))
+	if (g_str_equal(ctx->message_center, center))
 		return dbus_message_new_method_return(msg);
 
 	strcpy(ctx->message_center, center);
@@ -2077,6 +2078,15 @@ static void gprs_netreg_update(struct ofono_gprs *gprs)
 {
 	ofono_bool_t attach;
 
+	/*
+	 * This function can get called by other reasons than netreg
+	 * updating its status. So check if we have a valid netreg status yet.
+	 * The only reason for not having a valid status is basically during
+	 * startup while the netreg atom is fetching the status.
+	 */
+	if (gprs->netreg_status < 0)
+		return;
+
 	attach = gprs->netreg_status == NETWORK_REGISTRATION_STATUS_REGISTERED;
 
 	attach = attach || (gprs->roaming_allowed &&
@@ -2121,7 +2131,7 @@ static void netreg_status_changed(int status, int lac, int ci, int tech,
 {
 	struct ofono_gprs *gprs = data;
 
-	DBG("%d", status);
+	DBG("%d (%s)", status, registration_status_to_string(status));
 
 	gprs->netreg_status = status;
 
@@ -2224,7 +2234,7 @@ static DBusMessage *gprs_set_property(DBusConnection *conn,
 		gprs->roaming_allowed = value;
 
 		if (gprs->settings) {
-			g_key_file_set_integer(gprs->settings, SETTINGS_GROUP,
+			g_key_file_set_boolean(gprs->settings, SETTINGS_GROUP,
 						"RoamingAllowed",
 						gprs->roaming_allowed);
 			storage_sync(gprs->imsi, SETTINGS_STORE,
@@ -2321,7 +2331,7 @@ static struct pri_context *find_usable_context(struct ofono_gprs *gprs,
 	for (l = gprs->contexts; l; l = l->next) {
 		pri_ctx = l->data;
 
-		if (pri_ctx->context.apn == NULL)
+		if (pri_ctx->context.apn[0] == '\0')
 			return pri_ctx;
 	}
 
@@ -3629,7 +3639,7 @@ struct ofono_gprs *ofono_gprs_create(struct ofono_modem *modem,
 	}
 
 	gprs->status = NETWORK_REGISTRATION_STATUS_UNKNOWN;
-	gprs->netreg_status = NETWORK_REGISTRATION_STATUS_UNKNOWN;
+	gprs->netreg_status = -1;
 	gprs->pid_map = idmap_new(MAX_CONTEXTS);
 	gprs->filters = __ofono_gprs_filter_chain_new(gprs);
 
@@ -3641,6 +3651,7 @@ static void netreg_watch(struct ofono_atom *atom,
 				void *data)
 {
 	struct ofono_gprs *gprs = data;
+	int status;
 
 	if (cond == OFONO_ATOM_WATCH_CONDITION_UNREGISTERED) {
 		gprs_netreg_removed(gprs);
@@ -3648,7 +3659,16 @@ static void netreg_watch(struct ofono_atom *atom,
 	}
 
 	gprs->netreg = __ofono_atom_get_data(atom);
-	gprs->netreg_status = ofono_netreg_get_status(gprs->netreg);
+	status = ofono_netreg_get_status(gprs->netreg);
+
+	/*
+	 * If the status is known, assign it, otherwise keep the init value
+	 * to indicate that the netreg atom is not initialised with a known
+	 * value
+	 */
+	if (status != NETWORK_REGISTRATION_STATUS_UNKNOWN)
+		gprs->netreg_status = status;
+
 	gprs->status_watch = __ofono_netreg_add_status_watch(gprs->netreg,
 					netreg_status_changed, gprs, NULL);
 

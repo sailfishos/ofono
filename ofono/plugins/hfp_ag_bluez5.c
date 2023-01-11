@@ -39,9 +39,6 @@
 #include <ofono/modem.h>
 #include <ofono/handsfree-audio.h>
 
-typedef struct GAtChat GAtChat;
-typedef struct GAtResult GAtResult;
-
 #include "drivers/atmodem/atutil.h"
 
 #include "hfp.h"

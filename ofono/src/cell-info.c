@@ -70,6 +70,23 @@ int ofono_cell_compare_location(const struct ofono_cell *c1,
 			} else {
 				return l1->tac - l2->tac;
 			}
+		} else if (c1->type == OFONO_CELL_TYPE_NR) {
+			const struct ofono_cell_info_nr *n1 =
+				&c1->info.nr;
+			const struct ofono_cell_info_nr *n2 =
+				&c2->info.nr;
+
+			if (n1->mcc != n2->mcc) {
+				return n1->mcc - n2->mcc;
+			} else if (n1->mnc != n2->mnc) {
+				return n1->mnc - n2->mnc;
+			} else if (n1->nci != n2->nci) {
+				return n1->nci - n2->nci;
+			} else if (n1->pci != n2->pci) {
+				return n1->pci - n2->pci;
+			} else {
+				return n1->tac - n2->tac;
+			}
 		} else {
 			ofono_warn("Unexpected cell type");
 			return 0;

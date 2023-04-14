@@ -710,6 +710,12 @@ const char *registration_tech_to_string(enum ofono_access_technology tech)
 		return "lte-cat-m1";
 	case ACCESS_TECHNOLOGY_NB_IOT_NB1:
 		return "lte-cat-nb1";
+	case ACCESS_TECHNOLOGY_EUTRA_5GCN:
+		return "lte";
+	case ACCESS_TECHNOLOGY_NR_5GCN:
+	case ACCESS_TECHNOLOGY_NG_RAN:
+	case ACCESS_TECHNOLOGY_EUTRA_NR:
+		return "nr";
 	case OFONO_ACCESS_TECHNOLOGY_NONE:
 		break;
 	default:

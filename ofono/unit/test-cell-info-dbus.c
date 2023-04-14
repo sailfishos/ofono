@@ -318,6 +318,28 @@ static struct ofono_cell *test_cell_init_lte(struct ofono_cell *cell)
 	return cell;
 }
 
+static struct ofono_cell *test_cell_init_nr(struct ofono_cell *cell)
+{
+	struct ofono_cell_info_nr *nr = &cell->info.nr;
+
+	memset(cell, 0, sizeof(*cell));
+	cell->type = OFONO_CELL_TYPE_NR;
+	cell->registered = TRUE;
+	nr->mcc = 244;
+	nr->mnc = 91;
+	nr->nci = 36591883;
+	nr->pci = 309;
+	nr->tac = 4030;
+	nr->nrarfcn = INT_MAX;
+	nr->ssRsrp = 106;
+	nr->ssRsrq = 6;
+	nr->ssSinr = INT_MAX;
+	nr->csiRsrp = 106;
+	nr->csiRsrq = 6;
+	nr->csiSinr = INT_MAX;
+	return cell;
+}
+
 /* ==== Misc ==== */
 
 static void test_misc(void)
@@ -537,6 +559,13 @@ static void test_get_all3(void)
 }
 
 static void test_get_all4(void)
+{
+	struct ofono_cell cell;
+
+	test_get_all(test_cell_init_nr(&cell), "nr");
+}
+
+static void test_get_all5(void)
 {
 	struct ofono_cell cell;
 
@@ -1145,6 +1174,7 @@ int main(int argc, char *argv[])
 	g_test_add_func(TEST_("GetAll2"), test_get_all2);
 	g_test_add_func(TEST_("GetAll3"), test_get_all3);
 	g_test_add_func(TEST_("GetAll4"), test_get_all4);
+	g_test_add_func(TEST_("GetAll5"), test_get_all5);
 	g_test_add_func(TEST_("GetInterfaceVersion"), test_get_version);
 	g_test_add_func(TEST_("GetType"), test_get_type);
 	g_test_add_func(TEST_("GetRegistered"), test_get_registered);

@@ -941,10 +941,16 @@ static gboolean decode_submit_report(const unsigned char *pdu, int len,
 			return FALSE;
 
 		if (out->type == SMS_TYPE_SUBMIT_REPORT_ERROR) {
+			if (expected > (int) sizeof(out->submit_err_report.ud))
+				return FALSE;
+
 			out->submit_err_report.udl = udl;
 			memcpy(out->submit_err_report.ud,
 					pdu + offset, expected);
 		} else {
+			if (expected > (int) sizeof(out->submit_ack_report.ud))
+				return FALSE;
+
 			out->submit_ack_report.udl = udl;
 			memcpy(out->submit_ack_report.ud,
 					pdu + offset, expected);

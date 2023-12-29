@@ -628,6 +628,10 @@ gboolean sms_decode_address_field(const unsigned char *pdu, int len,
 	if (!next_octet(pdu, len, offset, &addr_len))
 		return FALSE;
 
+	/* According to 23.040 9.1.2.5 Address-Length must not exceed 20 */
+	if (addr_len > 20)
+		return FALSE;
+
 	if (sc && addr_len == 0) {
 		out->address[0] = '\0';
 		return TRUE;

@@ -75,6 +75,7 @@ static void test_merge1(const char *conf, const char *conf1, const char *out)
 	char *file1 = g_strconcat(subdir, "/bar.conf", NULL);
 	GKeyFile *k = g_key_file_new();
 	char *data;
+	char *out_stripped = g_strstrip(g_strdup(out));
 
 	g_assert(!mkdir(subdir, 0700));
 	g_assert(g_file_set_contents(file, conf, -1, NULL));
@@ -84,8 +85,9 @@ static void test_merge1(const char *conf, const char *conf1, const char *out)
 	g_key_file_set_list_separator(k, ',');
 	ofono_conf_merge_files(k, file);
 	data = g_key_file_to_data(k, NULL, NULL);
+	g_strstrip(data);
 	DBG("\n%s", data);
-	g_assert(!g_strcmp0(data, out));
+	g_assert(!g_strcmp0(data, out_stripped));
 	g_free(data);
 	g_key_file_unref(k);
 
@@ -94,6 +96,7 @@ static void test_merge1(const char *conf, const char *conf1, const char *out)
 	remove(subdir);
 	remove(dir);
 
+	g_free(out_stripped);
 	g_free(file);
 	g_free(file1);
 	g_free(dir);

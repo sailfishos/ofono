@@ -628,6 +628,10 @@ gboolean sms_decode_address_field(const unsigned char *pdu, int len,
 	if (!next_octet(pdu, len, offset, &addr_len))
 		return FALSE;
 
+	/* According to 23.040 9.1.2.5 Address-Length must not exceed 20 */
+	if (addr_len > 20)
+		return FALSE;
+
 	if (sc && addr_len == 0) {
 		out->address[0] = '\0';
 		return TRUE;
@@ -941,10 +945,16 @@ static gboolean decode_submit_report(const unsigned char *pdu, int len,
 			return FALSE;
 
 		if (out->type == SMS_TYPE_SUBMIT_REPORT_ERROR) {
+			if (expected > (int) sizeof(out->submit_err_report.ud))
+				return FALSE;
+
 			out->submit_err_report.udl = udl;
 			memcpy(out->submit_err_report.ud,
 					pdu + offset, expected);
 		} else {
+			if (expected > (int) sizeof(out->submit_ack_report.ud))
+				return FALSE;
+
 			out->submit_ack_report.udl = udl;
 			memcpy(out->submit_ack_report.ud,
 					pdu + offset, expected);

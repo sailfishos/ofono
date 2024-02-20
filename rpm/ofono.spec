@@ -22,7 +22,7 @@ BuildRequires: pkgconfig(rpm)
 Requires:   dbus
 Requires:   systemd
 Requires:   libglibutil >= %{libglibutil_version}
-%{recommend}: mobile-broadband-provider-info
+Requires:   mobile-broadband-provider-info
 %{recommend}: ofono-configs
 Requires(preun): systemd
 Requires(post): systemd

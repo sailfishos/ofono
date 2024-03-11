@@ -1229,6 +1229,32 @@ static void voicecalls_multiparty_changed(GSList *old, GSList *new)
 	}
 }
 
+static void voicecalls_emit_call_filtered(struct ofono_voicecall *vc,
+                                          struct voicecall *v,
+                                          const char *filter)
+{
+	DBusMessage *signal;
+	DBusMessageIter iter;
+	DBusMessageIter dict;
+
+	signal = dbus_message_new_signal(__ofono_atom_get_path(vc->atom),
+					OFONO_VOICECALL_MANAGER_INTERFACE,
+					filter);
+
+	if (signal == NULL)
+		return;
+
+	dbus_message_iter_init_append(signal, &iter);
+
+	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+					OFONO_PROPERTIES_ARRAY_SIGNATURE,
+					&dict);
+	append_voicecall_properties(v, &dict);
+	dbus_message_iter_close_container(&iter, &dict);
+
+	g_dbus_send_message(ofono_dbus_get_connection(), signal);
+}
+
 static void voicecalls_emit_call_removed(struct ofono_voicecall *vc,
 						struct voicecall *v)
 {
@@ -1622,12 +1648,14 @@ static void filter_incoming_cb(enum ofono_voicecall_filter_incoming_result res,
 
 	vc->incoming_filter_list = g_slist_remove(vc->incoming_filter_list, v);
 	if (res == OFONO_VOICECALL_FILTER_INCOMING_HANGUP) {
+		voicecalls_emit_call_filtered(vc, v, "CallBlocked");
 		if (vc->driver->release_specific) {
 			vc->driver->release_specific(vc, v->call->id,
 							dummy_callback, vc);
 		}
 		voicecall_destroy(v);
 	} else if (res == OFONO_VOICECALL_FILTER_INCOMING_IGNORE) {
+		voicecalls_emit_call_filtered(vc, v, "CallIgnored");
 		voicecall_destroy(v);
 	} else if (voicecall_dbus_register(v)) {
 		struct ofono_voicecall *vc = v->vc;
@@ -2641,6 +2669,8 @@ static const GDBusSignalTable manager_signals[] = {
 	{ GDBUS_SIGNAL("CallAdded",
 		GDBUS_ARGS({ "path", "o" }, { "properties", "a{sv}" })) },
 	{ GDBUS_SIGNAL("CallRemoved", GDBUS_ARGS({ "path", "o"})) },
+	{ GDBUS_SIGNAL("CallIgnored", GDBUS_ARGS({ "properties", "a{sv}" })) },
+	{ GDBUS_SIGNAL("CallBlocked", GDBUS_ARGS({ "properties", "a{sv}" })) },
 	{ }
 };
 

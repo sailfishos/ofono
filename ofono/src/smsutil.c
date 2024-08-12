@@ -783,6 +783,9 @@ static gboolean decode_deliver(const unsigned char *pdu, int len,
 
 	expected = sms_udl_in_bytes(out->deliver.udl, out->deliver.dcs);
 
+	if (expected < 0 || expected > (int)sizeof(out->deliver.ud))
+		return FALSE;
+
 	if ((len - offset) < expected)
 		return FALSE;
 

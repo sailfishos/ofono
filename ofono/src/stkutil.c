@@ -1816,6 +1816,10 @@ static bool parse_dataobj_frame_layout(struct comprehension_tlv_iter *iter,
 
 	fl->layout = data[0];
 	fl->len = len - 1;
+
+	if (fl->len > sizeof(fl->size))
+		return false;
+
 	memcpy(fl->size, data + 1, fl->len);
 
 	return true;

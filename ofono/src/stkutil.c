@@ -1909,6 +1909,10 @@ static bool parse_dataobj_mms_reference(struct comprehension_tlv_iter *iter,
 
 	data = comprehension_tlv_iter_get_data(iter);
 	mr->len = len;
+
+	if (len > sizeof(mr->ref))
+		return false;
+
 	memcpy(mr->ref, data, len);
 
 	return true;

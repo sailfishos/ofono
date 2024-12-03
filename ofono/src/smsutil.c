@@ -1477,6 +1477,9 @@ static gboolean decode_command(const unsigned char *pdu, int len,
 	if ((len - offset) < out->command.cdl)
 		return FALSE;
 
+	if (out->command.cdl > sizeof(out->command.cd))
+		return FALSE;
+
 	memcpy(out->command.cd, pdu + offset, out->command.cdl);
 
 	return TRUE;

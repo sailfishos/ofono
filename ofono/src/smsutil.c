@@ -1239,10 +1239,16 @@ static gboolean decode_deliver_report(const unsigned char *pdu, int len,
 			return FALSE;
 
 		if (out->type == SMS_TYPE_DELIVER_REPORT_ERROR) {
+			if (expected > (int) sizeof(out->deliver_err_report.ud))
+				return FALSE;
+
 			out->deliver_err_report.udl = udl;
 			memcpy(out->deliver_err_report.ud,
 					pdu + offset, expected);
 		} else {
+			if (expected > (int) sizeof(out->deliver_ack_report.ud))
+				return FALSE;
+
 			out->deliver_ack_report.udl = udl;
 			memcpy(out->deliver_ack_report.ud,
 					pdu + offset, expected);

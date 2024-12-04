@@ -1975,6 +1975,10 @@ static bool parse_dataobj_mms_content_id(
 
 	data = comprehension_tlv_iter_get_data(iter);
 	mci->len = len;
+
+	if (len > sizeof(mci->id))
+		return false;
+
 	memcpy(mci->id, data, len);
 
 	return true;

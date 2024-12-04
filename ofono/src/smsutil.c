@@ -1090,6 +1090,9 @@ static gboolean decode_status_report(const unsigned char *pdu, int len,
 		if ((len - offset) < expected)
 			return FALSE;
 
+		if (expected > (int)sizeof(out->status_report.ud))
+			return FALSE;
+
 		memcpy(out->status_report.ud, pdu + offset, expected);
 	}
 

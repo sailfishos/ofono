@@ -50,7 +50,7 @@ static void cusd_parse(GAtResult *result, struct ofono_ussd *ussd)
 	GAtResultIter iter;
 	int status, dcs;
 	const char *content;
-	unsigned char msg[160];
+	unsigned char msg[160] = {0};
 	const unsigned char *msg_ptr = NULL;
 	long msg_len;
 
@@ -67,6 +67,9 @@ static void cusd_parse(GAtResult *result, struct ofono_ussd *ussd)
 
 	if (!g_at_result_iter_next_number(&iter, &dcs))
 		dcs = 0;
+
+	if (strlen(content) > sizeof(msg) * 2)
+		goto out;
 
 	msg_ptr = decode_hex_own_buf(content, -1, &msg_len, 0, msg);
 

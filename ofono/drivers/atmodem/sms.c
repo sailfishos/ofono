@@ -407,7 +407,7 @@ static void at_cmt_notify(GAtResult *result, gpointer user_data)
 	struct sms_data *data = ofono_sms_get_data(sms);
 	GAtResultIter iter;
 	const char *hexpdu;
-	unsigned char pdu[176];
+	unsigned char pdu[176] = {0};
 	long pdu_len;
 	int tpdu_len;
 
@@ -473,7 +473,7 @@ static void at_cmgr_notify(GAtResult *result, gpointer user_data)
 	struct sms_data *data = ofono_sms_get_data(sms);
 	GAtResultIter iter;
 	const char *hexpdu;
-	unsigned char pdu[176];
+	unsigned char pdu[176] = {0};
 	long pdu_len;
 	int tpdu_len;
 
@@ -655,7 +655,7 @@ static void at_cmgl_notify(GAtResult *result, gpointer user_data)
 	struct sms_data *data = ofono_sms_get_data(sms);
 	GAtResultIter iter;
 	const char *hexpdu;
-	unsigned char pdu[176];
+	unsigned char pdu[176] = {0};
 	long pdu_len;
 	int tpdu_len;
 	int index;

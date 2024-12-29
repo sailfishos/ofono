@@ -1816,6 +1816,10 @@ static bool parse_dataobj_frame_layout(struct comprehension_tlv_iter *iter,
 
 	fl->layout = data[0];
 	fl->len = len - 1;
+
+	if (fl->len > sizeof(fl->size))
+		return false;
+
 	memcpy(fl->size, data + 1, fl->len);
 
 	return true;
@@ -1909,6 +1913,10 @@ static bool parse_dataobj_mms_reference(struct comprehension_tlv_iter *iter,
 
 	data = comprehension_tlv_iter_get_data(iter);
 	mr->len = len;
+
+	if (len > sizeof(mr->ref))
+		return false;
+
 	memcpy(mr->ref, data, len);
 
 	return true;
@@ -1927,6 +1935,10 @@ static bool parse_dataobj_mms_id(struct comprehension_tlv_iter *iter,
 
 	data = comprehension_tlv_iter_get_data(iter);
 	mi->len = len;
+
+	if (len > sizeof(mi->id))
+		return false;
+
 	memcpy(mi->id, data, len);
 
 	return true;
@@ -1963,6 +1975,10 @@ static bool parse_dataobj_mms_content_id(
 
 	data = comprehension_tlv_iter_get_data(iter);
 	mci->len = len;
+
+	if (len > sizeof(mci->id))
+		return false;
+
 	memcpy(mci->id, data, len);
 
 	return true;

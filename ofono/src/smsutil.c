@@ -783,6 +783,9 @@ static gboolean decode_deliver(const unsigned char *pdu, int len,
 
 	expected = sms_udl_in_bytes(out->deliver.udl, out->deliver.dcs);
 
+	if (expected < 0 || expected > (int)sizeof(out->deliver.ud))
+		return FALSE;
+
 	if ((len - offset) < expected)
 		return FALSE;
 
@@ -1087,6 +1090,9 @@ static gboolean decode_status_report(const unsigned char *pdu, int len,
 		if ((len - offset) < expected)
 			return FALSE;
 
+		if (expected > (int)sizeof(out->status_report.ud))
+			return FALSE;
+
 		memcpy(out->status_report.ud, pdu + offset, expected);
 	}
 
@@ -1236,10 +1242,16 @@ static gboolean decode_deliver_report(const unsigned char *pdu, int len,
 			return FALSE;
 
 		if (out->type == SMS_TYPE_DELIVER_REPORT_ERROR) {
+			if (expected > (int) sizeof(out->deliver_err_report.ud))
+				return FALSE;
+
 			out->deliver_err_report.udl = udl;
 			memcpy(out->deliver_err_report.ud,
 					pdu + offset, expected);
 		} else {
+			if (expected > (int) sizeof(out->deliver_ack_report.ud))
+				return FALSE;
+
 			out->deliver_ack_report.udl = udl;
 			memcpy(out->deliver_ack_report.ud,
 					pdu + offset, expected);
@@ -1472,6 +1484,9 @@ static gboolean decode_command(const unsigned char *pdu, int len,
 		return FALSE;
 
 	if ((len - offset) < out->command.cdl)
+		return FALSE;
+
+	if (out->command.cdl > sizeof(out->command.cd))
 		return FALSE;
 
 	memcpy(out->command.cd, pdu + offset, out->command.cdl);

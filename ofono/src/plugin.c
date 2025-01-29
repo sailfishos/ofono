@@ -220,16 +220,20 @@ void __ofono_plugin_cleanup(void)
 	for (list = plugins; list; list = list->next) {
 		struct ofono_plugin *plugin = list->data;
 
-		if (plugin->active == TRUE && plugin->desc->exit)
+		if (plugin->active == TRUE && plugin->desc->exit) {
+			ofono_debug("Closing plugin %s", plugin->desc->name);
 			plugin->desc->exit();
+		}
 	}
 
 	/* Second pass - unload the libraries */
 	for (list = plugins; list; list = list->next) {
 		struct ofono_plugin *plugin = list->data;
 
-		if (plugin->handle)
+		if (plugin->handle) {
+			ofono_debug("Unloading plugin %s", plugin->desc->name);
 			dlclose(plugin->handle);
+		}
 	}
 
 	/* Finally, free the memory */

@@ -3979,9 +3979,9 @@ end:
 		struct ofono_watchlist_item *item = iter->data;
 		ofono_sim_session_event_cb_t notify = item->notify;
 
-		notify(active, session->session_id, item->notify_data);
-
 		iter = g_slist_next(iter);
+
+		notify(active, session->session_id, item->notify_data);
 	}
 }
 

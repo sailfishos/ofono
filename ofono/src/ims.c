@@ -275,7 +275,7 @@ static void ims_registration_check(struct ofono_ims *ims)
 			g_timeout_add_seconds(RECHECK_TIMEOUT_SEC,
 				ims_registration_recheck_cb, ims);
 	} else {
-		DBG("leaving ims registered");
+		DBG("leaving ims %sregistered", ims->reg_info ? "" : "un");
 	}
 }
 

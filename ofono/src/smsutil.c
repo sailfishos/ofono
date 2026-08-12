@@ -4287,9 +4287,7 @@ static inline gboolean cbs_is_update_newer(unsigned int n, unsigned int o)
 {
 	unsigned int old_update = o & 0xf;
 	unsigned int new_update = n & 0xf;
-
-	if (new_update == old_update)
-		return FALSE;
+	unsigned int difference = (new_update - old_update) & 0xf;
 
 	/*
 	 * Any Update Number eight or less higher (modulo 16) than the last
@@ -4297,10 +4295,7 @@ static inline gboolean cbs_is_update_newer(unsigned int n, unsigned int o)
 	 * treated as a new CBS message, provided the mobile has not been
 	 * switched off.
 	 */
-	if (new_update <= ((old_update + 8) % 16))
-		return TRUE;
-
-	return FALSE;
+	return difference > 0 && difference <= 8;
 }
 
 struct cbs_assembly *cbs_assembly_new(void)
@@ -4346,10 +4341,7 @@ static gint cbs_compare_node_by_update(gconstpointer a, gconstpointer b)
 	if ((serial & (~0xf)) != (node->serial & (~0xf)))
 		return 1;
 
-	if (cbs_is_update_newer(node->serial, serial))
-		return 1;
-
-	return 0;
+	return cbs_is_update_newer(serial, node->serial) ? 0 : 1;
 }
 
 static gint cbs_compare_recv_by_serial(gconstpointer a, gconstpointer b)
@@ -4395,7 +4387,7 @@ static void cbs_assembly_expire(struct cbs_assembly *assembly,
 			assembly->assembly_list = l->next;
 
 		g_slist_free_full(node->pages, g_free);
-		g_free(node->pages);
+		g_free(node);
 		tmp = l;
 		l = l->next;
 		g_slist_free_1(tmp);
@@ -4458,6 +4450,7 @@ GSList *cbs_assembly_add_page(struct cbs_assembly *assembly,
 	unsigned int new_serial;
 	GSList **recv;
 	GSList *l;
+	GSList *recv_match;
 	GSList *prev;
 	int position;
 
@@ -4474,17 +4467,18 @@ GSList *cbs_assembly_add_page(struct cbs_assembly *assembly,
 		recv = &assembly->recv_cell;
 
 	/* Have we seen this message before? */
-	l = g_slist_find_custom(*recv, GUINT_TO_POINTER(new_serial),
+	recv_match = g_slist_find_custom(*recv, GUINT_TO_POINTER(new_serial),
 				cbs_compare_recv_by_serial);
 
 	/* If we have, is the message newer? */
-	if (l && !cbs_is_update_newer(new_serial, GPOINTER_TO_UINT(l->data)))
+	if (recv_match && !cbs_is_update_newer(new_serial,
+					GPOINTER_TO_UINT(recv_match->data)))
 		return NULL;
 
 	/* Easy case first, page 1 of 1 */
 	if (cbs->max_pages == 1 && cbs->page == 1) {
-		if (l)
-			l->data = GUINT_TO_POINTER(new_serial);
+		if (recv_match)
+			recv_match->data = GUINT_TO_POINTER(new_serial);
 		else
 			*recv = g_slist_prepend(*recv,
 						GUINT_TO_POINTER(new_serial));
@@ -4547,7 +4541,10 @@ out:
 
 	cbs_assembly_expire(assembly, cbs_compare_node_by_update,
 				GUINT_TO_POINTER(new_serial));
-	*recv = g_slist_prepend(*recv, GUINT_TO_POINTER(new_serial));
+	if (recv_match)
+		recv_match->data = GUINT_TO_POINTER(new_serial);
+	else
+		*recv = g_slist_prepend(*recv, GUINT_TO_POINTER(new_serial));
 
 	return completed;
 }

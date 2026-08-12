@@ -1586,6 +1586,317 @@ static void test_cbs_padding_character(void)
 	g_slist_free(l);
 }
 
+static void test_cbs_pdu_legacy(void)
+{
+	struct cbs_decoded decoded;
+	const struct cbs *page;
+	unsigned char *pdu;
+	long len;
+
+	pdu = decode_hex(cbs1, -1, &len, 0);
+	g_assert(cbs_decode_pdu(pdu, len, &decoded));
+	g_assert(g_slist_length(decoded.pages) == 1);
+	page = decoded.pages->data;
+	g_assert(page->message_identifier == 50);
+	g_assert(page->udlen == CBS_PAGE_SIZE);
+	g_assert(decoded.warning_area == NULL);
+	cbs_decoded_clear(&decoded);
+	g_free(pdu);
+}
+
+static void test_cbs_pdu_umts(void)
+{
+	struct cbs_decoded decoded;
+	const struct cbs *page;
+	unsigned char pdu[7 + 2 * (CBS_PAGE_SIZE + 1)] = { 0 };
+	unsigned char *gsm;
+	long gsm_len;
+	char language[3];
+	char *text;
+
+	pdu[0] = 1;
+	pdu[1] = 0x11;
+	pdu[2] = 0x13;
+	pdu[3] = 0x4a;
+	pdu[4] = 0x25;
+	pdu[5] = 0x01;
+	pdu[6] = 2;
+
+	gsm = decode_hex(cbs1, -1, &gsm_len, 0);
+	memcpy(pdu + 7, gsm + 6, CBS_PAGE_SIZE);
+	pdu[7 + CBS_PAGE_SIZE] = CBS_PAGE_SIZE;
+	g_free(gsm);
+
+	gsm = decode_hex(cbs2, -1, &gsm_len, 0);
+	memcpy(pdu + 7 + CBS_PAGE_SIZE + 1, gsm + 6, CBS_PAGE_SIZE);
+	pdu[7 + 2 * CBS_PAGE_SIZE + 1] = CBS_PAGE_SIZE;
+	g_free(gsm);
+
+	g_assert(cbs_decode_pdu(pdu, sizeof(pdu), &decoded));
+	g_assert(g_slist_length(decoded.pages) == 2);
+	page = decoded.pages->data;
+	g_assert(page->gs == CBS_GEO_SCOPE_PLMN);
+	g_assert(page->message_code == 0xa2);
+	g_assert(page->update_number == 5);
+	g_assert(page->message_identifier == 0x1113);
+	g_assert(page->max_pages == 2);
+	g_assert(page->page == 1);
+
+	text = cbs_decode_text(decoded.pages, language);
+	g_assert_cmpstr(text, ==, "BelconnenFraser");
+	g_assert_cmpstr(language, ==, "en");
+	g_free(text);
+	cbs_decoded_clear(&decoded);
+}
+
+static void test_cbs_pdu_max_length(void)
+{
+	struct cbs_decoded decoded;
+	struct cbs_assembly *assembly;
+	GSList *completed = NULL;
+	GSList *l;
+	unsigned char pdu[7 + CBS_MAX_PAGES * (CBS_PAGE_SIZE + 1)] = { 0 };
+	char language[3];
+	char *text;
+	int i;
+
+	pdu[0] = 1;
+	pdu[1] = 0x10;
+	pdu[2] = 0x00;
+	pdu[5] = 0x00;
+	pdu[6] = CBS_MAX_PAGES;
+	for (i = 0; i < CBS_MAX_PAGES; i++)
+		pdu[7 + i * (CBS_PAGE_SIZE + 1) + CBS_PAGE_SIZE] =
+				CBS_PAGE_SIZE;
+
+	g_assert(cbs_decode_pdu(pdu, sizeof(pdu), &decoded));
+	g_assert(g_slist_length(decoded.pages) == CBS_MAX_PAGES);
+
+	assembly = cbs_assembly_new();
+	for (l = decoded.pages; l; l = l->next) {
+		GSList *result = cbs_assembly_add_page(assembly, l->data);
+
+		if (result)
+			completed = result;
+	}
+
+	g_assert(completed != NULL);
+	g_assert(g_slist_length(completed) == CBS_MAX_PAGES);
+	text = cbs_decode_text(completed, language);
+	g_assert(text != NULL);
+	g_assert(strlen(text) == CBS_MAX_PAGES * CBS_MAX_GSM_CHARS);
+	g_assert_cmpstr(language, ==, "de");
+	g_free(text);
+	g_slist_free_full(completed, g_free);
+	cbs_assembly_free(assembly);
+	cbs_decoded_clear(&decoded);
+}
+
+static void test_cbs_pdu_malformed(void)
+{
+	struct cbs_decoded decoded;
+	unsigned char pdu[7 + CBS_PAGE_SIZE + 1 + 2] = { 0 };
+
+	g_assert(!cbs_decode_pdu(pdu, 5, &decoded));
+	g_assert(!cbs_decode_pdu(pdu, 89, &decoded));
+
+	pdu[0] = 1;
+	pdu[6] = 2;
+	g_assert(!cbs_decode_pdu(pdu, sizeof(pdu), &decoded));
+
+	pdu[6] = 1;
+	pdu[7 + CBS_PAGE_SIZE] = CBS_PAGE_SIZE + 1;
+	g_assert(!cbs_decode_pdu(pdu, sizeof(pdu) - 2, &decoded));
+
+	pdu[7 + CBS_PAGE_SIZE] = CBS_PAGE_SIZE;
+	pdu[7 + CBS_PAGE_SIZE + 1] = 1;
+	pdu[7 + CBS_PAGE_SIZE + 2] = 0;
+	g_assert(cbs_decode_pdu(pdu, sizeof(pdu), &decoded));
+	g_assert(decoded.warning_area == NULL);
+	g_assert(decoded.geometries == NULL);
+	g_assert(!decoded.maximum_wait_time_present);
+	cbs_decoded_clear(&decoded);
+
+	/* A truncated optional WAC length must also leave the body intact. */
+	g_assert(cbs_decode_pdu(pdu, sizeof(pdu) - 1, &decoded));
+	g_assert(decoded.warning_area == NULL);
+	cbs_decoded_clear(&decoded);
+}
+
+static void test_cbs_pdu_short_page(void)
+{
+	struct cbs_decoded decoded;
+	unsigned char pdu[7 + CBS_PAGE_SIZE + 1] = { 0 };
+	char language[3];
+	char *text;
+
+	pdu[0] = 1;
+	pdu[6] = 1;
+
+	/* An empty ordinary page is valid and decodes to an empty string. */
+	g_assert(cbs_decode_pdu(pdu, sizeof(pdu), &decoded));
+	text = cbs_decode_text(decoded.pages, language);
+	g_assert_cmpstr(text, ==, "");
+	g_assert_cmpstr(language, ==, "de");
+	g_free(text);
+	cbs_decoded_clear(&decoded);
+
+	/* DCS 0x11 requires a complete two-octet UCS2 language indicator. */
+	pdu[5] = 0x11;
+	g_assert(cbs_decode_pdu(pdu, sizeof(pdu), &decoded));
+	g_assert(cbs_decode_text(decoded.pages, language) == NULL);
+	cbs_decoded_clear(&decoded);
+
+	pdu[7 + CBS_PAGE_SIZE] = 1;
+	g_assert(cbs_decode_pdu(pdu, sizeof(pdu), &decoded));
+	g_assert(cbs_decode_text(decoded.pages, language) == NULL);
+	cbs_decoded_clear(&decoded);
+}
+
+static void test_cbs_update_wrap(void)
+{
+	struct cbs_assembly *assembly = cbs_assembly_new();
+	struct cbs page = { 0 };
+	GSList *completed;
+
+	page.gs = CBS_GEO_SCOPE_PLMN;
+	page.message_identifier = 50;
+	page.max_pages = 1;
+	page.page = 1;
+	page.update_number = 15;
+	completed = cbs_assembly_add_page(assembly, &page);
+	g_assert(completed != NULL);
+	g_slist_free_full(completed, g_free);
+
+	page.update_number = 0;
+	completed = cbs_assembly_add_page(assembly, &page);
+	g_assert(completed != NULL);
+	g_slist_free_full(completed, g_free);
+
+	page.update_number = 9;
+	g_assert(cbs_assembly_add_page(assembly, &page) == NULL);
+	cbs_assembly_location_changed(assembly, FALSE, TRUE, TRUE);
+	g_assert(assembly->recv_plmn != NULL);
+	cbs_assembly_location_changed(assembly, TRUE, FALSE, FALSE);
+	g_assert(assembly->recv_plmn == NULL);
+	cbs_assembly_free(assembly);
+}
+
+static void test_cbs_multipart_update(void)
+{
+	struct cbs_assembly *assembly = cbs_assembly_new();
+	struct cbs page = { 0 };
+	GSList *completed;
+
+	page.gs = CBS_GEO_SCOPE_PLMN;
+	page.message_identifier = 50;
+	page.max_pages = 2;
+	page.update_number = 15;
+
+	page.page = 1;
+	g_assert(cbs_assembly_add_page(assembly, &page) == NULL);
+	g_assert(assembly->assembly_list != NULL);
+	page.page = 2;
+	completed = cbs_assembly_add_page(assembly, &page);
+	g_assert(completed != NULL);
+	g_slist_free_full(completed, g_free);
+	g_assert(g_slist_length(assembly->recv_plmn) == 1);
+
+	page.update_number = 0;
+	page.page = 1;
+	g_assert(cbs_assembly_add_page(assembly, &page) == NULL);
+	page.page = 2;
+	completed = cbs_assembly_add_page(assembly, &page);
+	g_assert(completed != NULL);
+	g_slist_free_full(completed, g_free);
+	g_assert(g_slist_length(assembly->recv_plmn) == 1);
+
+	/* Expiring an unfinished assembly must release its node and pages. */
+	page.update_number = 1;
+	page.page = 1;
+	g_assert(cbs_assembly_add_page(assembly, &page) == NULL);
+	g_assert(assembly->assembly_list != NULL);
+	cbs_assembly_location_changed(assembly, TRUE, FALSE, FALSE);
+	g_assert(assembly->assembly_list == NULL);
+	g_assert(assembly->recv_plmn == NULL);
+	cbs_assembly_free(assembly);
+}
+
+static void test_cbs_pdu_warning_area(void)
+{
+	struct cbs_decoded decoded;
+	unsigned char pdu[7 + CBS_PAGE_SIZE + 1 + 2 + 32] = { 0 };
+	const int wac = 7 + CBS_PAGE_SIZE + 1;
+
+	pdu[0] = 1;
+	pdu[1] = 0x11;
+	pdu[2] = 0x12;
+	pdu[5] = 0x01;
+	pdu[6] = 1;
+	pdu[7 + CBS_PAGE_SIZE] = CBS_PAGE_SIZE;
+	pdu[wac] = 32;
+	pdu[wac + 1] = 0;
+	pdu[wac + 2] = 0x10;
+	pdu[wac + 3] = 0x0c;
+	pdu[wac + 4] = 10;
+	pdu[wac + 5] = 0x30;
+	pdu[wac + 6] = 0x28;
+	pdu[wac + 15] = 0x20;
+	pdu[wac + 16] = 0x4c;
+
+	g_assert(cbs_decode_pdu(pdu, sizeof(pdu), &decoded));
+	g_assert(decoded.warning_area_length == 32);
+	g_assert(decoded.maximum_wait_time_present);
+	g_assert(decoded.maximum_wait_time == 10);
+	g_assert_cmpstr(decoded.geometries, ==,
+			"circle|-90,-180|0;"
+			"polygon|-90,-180|-90,-180|-90,-180");
+	cbs_decoded_clear(&decoded);
+}
+
+static void test_cbs_pdu_unsupported_warning_area(void)
+{
+	struct cbs_decoded decoded;
+	unsigned char pdu[7 + CBS_PAGE_SIZE + 1 + 2 + 5] = { 0 };
+	const int wac = 7 + CBS_PAGE_SIZE + 1;
+
+	pdu[0] = 1;
+	pdu[6] = 1;
+	pdu[7 + CBS_PAGE_SIZE] = CBS_PAGE_SIZE;
+	pdu[wac] = 5;
+	pdu[wac + 2] = 0x10;
+	pdu[wac + 3] = 0x0c;
+	pdu[wac + 4] = 10;
+	pdu[wac + 5] = 0x40;
+	pdu[wac + 6] = 0x08;
+
+	/* Unsupported elements invalidate WAC metadata, not the alert body. */
+	g_assert(cbs_decode_pdu(pdu, sizeof(pdu), &decoded));
+	g_assert(decoded.warning_area == NULL);
+	g_assert(decoded.geometries == NULL);
+	g_assert(!decoded.maximum_wait_time_present);
+	cbs_decoded_clear(&decoded);
+}
+
+static void test_cbs_pdu_geo_fencing_trigger(void)
+{
+	static const char *fixture = "0001113001010010C0111204D2";
+	struct cbs_decoded decoded;
+	unsigned char *pdu;
+	long len;
+
+	pdu = decode_hex(fixture, -1, &len, 0);
+	g_assert(cbs_decode_pdu(pdu, len, &decoded));
+	g_assert(decoded.geo_fencing_trigger_type == 1);
+	g_assert(decoded.geo_fencing_data_length == 6);
+	g_assert(decoded.geo_fencing_data[2] == 0x11);
+	g_assert(decoded.geo_fencing_data[3] == 0x12);
+	g_assert(decoded.geo_fencing_data[4] == 0x04);
+	g_assert(decoded.geo_fencing_data[5] == 0xd2);
+	cbs_decoded_clear(&decoded);
+	g_free(pdu);
+}
+
 static const char *ranges[] = { "1-5, 2, 3, 600, 569-900, 999",
 				"0-20, 33, 44, 50-60, 20-50, 1-5, 5, 3, 5",
 				NULL };
@@ -1939,6 +2250,23 @@ int main(int argc, char **argv)
 
 	g_test_add_func("/testsms/Test CBS Padding Character",
 			test_cbs_padding_character);
+	g_test_add_func("/testsms/Test CBS PDU Legacy", test_cbs_pdu_legacy);
+	g_test_add_func("/testsms/Test CBS PDU UMTS", test_cbs_pdu_umts);
+	g_test_add_func("/testsms/Test CBS PDU Maximum Length",
+			test_cbs_pdu_max_length);
+	g_test_add_func("/testsms/Test CBS PDU Malformed",
+			test_cbs_pdu_malformed);
+	g_test_add_func("/testsms/Test CBS PDU Short Page",
+			test_cbs_pdu_short_page);
+	g_test_add_func("/testsms/Test CBS Update Wrap", test_cbs_update_wrap);
+	g_test_add_func("/testsms/Test CBS Multipart Update",
+			test_cbs_multipart_update);
+	g_test_add_func("/testsms/Test CBS PDU Warning Area",
+			test_cbs_pdu_warning_area);
+	g_test_add_func("/testsms/Test CBS PDU Unsupported Warning Area",
+			test_cbs_pdu_unsupported_warning_area);
+	g_test_add_func("/testsms/Test CBS PDU DBGF Trigger",
+			test_cbs_pdu_geo_fencing_trigger);
 
 	g_test_add_func("/testsms/Range minimizer", test_range_minimizer);
 

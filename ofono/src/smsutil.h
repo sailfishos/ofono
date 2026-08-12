@@ -23,6 +23,8 @@
 #include <ofono/types.h>
 
 #define CBS_MAX_GSM_CHARS 93
+#define CBS_MAX_PAGES 15
+#define CBS_PAGE_SIZE 82
 #define CBS_MAX_TOPIC 9999
 #define SMS_MSGID_LEN 20
 
@@ -418,7 +420,19 @@ struct cbs {
 	guint8 max_pages;			/* 4 bits */
 	guint8 page;				/* 4 bits */
 	guint8 udlen;
-	guint8 ud[82];
+	guint8 ud[CBS_PAGE_SIZE];
+};
+
+struct cbs_decoded {
+	GSList *pages;
+	guint8 *warning_area;
+	guint16 warning_area_length;
+	char *geometries;
+	gboolean maximum_wait_time_present;
+	guint8 maximum_wait_time;
+	guint8 *geo_fencing_data;
+	guint16 geo_fencing_data_length;
+	guint8 geo_fencing_trigger_type;
 };
 
 struct cbs_assembly_node {
@@ -595,6 +609,9 @@ gboolean cbs_dcs_decode(guint8 dcs, gboolean *udhi, enum sms_class *cls,
 
 gboolean iso639_2_from_language(enum cbs_language lang, char *iso639);
 gboolean cbs_decode(const unsigned char *pdu, int len, struct cbs *out);
+gboolean cbs_decode_pdu(const unsigned char *pdu, int len,
+			struct cbs_decoded *out);
+void cbs_decoded_clear(struct cbs_decoded *decoded);
 gboolean cbs_encode(const struct cbs *cbs, int *len, unsigned char *pdu);
 gboolean cbs_extract_app_port(const struct cbs *cbs, int *dst, int *src,
 				gboolean *is_8bit);

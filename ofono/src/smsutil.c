@@ -3934,6 +3934,8 @@ gboolean cbs_decode(const unsigned char *pdu, int len, struct cbs *out)
 	if (len < 6 || len > 88)
 		return FALSE;
 
+	memset(out, 0, sizeof(*out));
+
 	out->gs = (enum cbs_geo_scope) ((pdu[0] >> 6) & 0x03);
 	out->message_code = ((pdu[0] & 0x3f) << 4) | ((pdu[1] >> 4) & 0xf);
 	out->update_number = (pdu[1] & 0xf);
@@ -3941,10 +3943,6 @@ gboolean cbs_decode(const unsigned char *pdu, int len, struct cbs *out)
 	out->dcs = pdu[4];
 	out->max_pages = pdu[5] & 0xf;
 	out->page = (pdu[5] >> 4) & 0xf;
-
-	/* Allow the last fragment to be truncated */
-	if (len != 88 && out->max_pages != out->page)
-		return FALSE;
 
 	/*
 	 * If a mobile receives the code 0000 in either the first field or
@@ -3957,12 +3955,296 @@ gboolean cbs_decode(const unsigned char *pdu, int len, struct cbs *out)
 		out->page = 1;
 	}
 
+	if (out->page > out->max_pages)
+		return FALSE;
+
+	/* Allow the last fragment to be truncated */
+	if (len != 88 && out->max_pages != out->page)
+		return FALSE;
+
 	out->udlen = (guint8)(len - 6);
 	memcpy(out->ud, pdu + 6, out->udlen);
-	if (out->udlen < 82)
-		memset(out->ud + out->udlen, 0, 82 - out->udlen);
+	if (out->udlen < CBS_PAGE_SIZE)
+		memset(out->ud + out->udlen, 0,
+				CBS_PAGE_SIZE - out->udlen);
 
 	return TRUE;
+}
+
+static gboolean cbs_read_bits(const guint8 *data, guint16 len,
+				guint32 *bit_offset, guint8 count, guint32 *value)
+{
+	guint32 result = 0;
+	guint8 i;
+
+	if (count > 32 || *bit_offset + count > ((guint32) len * 8))
+		return FALSE;
+
+	for (i = 0; i < count; i++) {
+		const guint32 bit = *bit_offset + i;
+
+		result = (result << 1) |
+				((data[bit / 8] >> (7 - (bit % 8))) & 1);
+	}
+
+	*bit_offset += count;
+	*value = result;
+	return TRUE;
+}
+
+static gboolean cbs_append_coordinate(GString *geometries,
+				const guint8 *data, guint16 len, guint32 *bit_offset)
+{
+	guint32 latitude_bits;
+	guint32 longitude_bits;
+	char latitude[G_ASCII_DTOSTR_BUF_SIZE];
+	char longitude[G_ASCII_DTOSTR_BUF_SIZE];
+
+	if (!cbs_read_bits(data, len, bit_offset, 22, &latitude_bits) ||
+			!cbs_read_bits(data, len, bit_offset, 22,
+					&longitude_bits))
+		return FALSE;
+
+	g_ascii_dtostr(latitude, sizeof(latitude),
+			(latitude_bits * 180.0 / (1 << 22)) - 90.0);
+	g_ascii_dtostr(longitude, sizeof(longitude),
+			(longitude_bits * 360.0 / (1 << 22)) - 180.0);
+	g_string_append_printf(geometries, "|%s,%s", latitude, longitude);
+	return TRUE;
+}
+
+static gboolean cbs_append_geometry(GString *geometries, guint8 type,
+				const guint8 *data, guint16 len)
+{
+	guint32 bit_offset = 0;
+
+	if (type == 2) {
+		const guint32 bits = len * 8;
+		const guint32 count = bits / 44;
+		guint32 i;
+
+		if (count < 3 || bits - count * 44 >= 8)
+			return FALSE;
+
+		if (geometries->len)
+			g_string_append_c(geometries, ';');
+		g_string_append(geometries, "polygon");
+
+		for (i = 0; i < count; i++)
+			if (!cbs_append_coordinate(geometries, data, len,
+						&bit_offset))
+				return FALSE;
+
+		return TRUE;
+	} else if (type == 3) {
+		guint32 radius_bits;
+		char radius[G_ASCII_DTOSTR_BUF_SIZE];
+
+		if (len != 8)
+			return FALSE;
+
+		if (geometries->len)
+			g_string_append_c(geometries, ';');
+		g_string_append(geometries, "circle");
+		if (!cbs_append_coordinate(geometries, data, len, &bit_offset) ||
+				!cbs_read_bits(data, len, &bit_offset, 20,
+						&radius_bits))
+			return FALSE;
+
+		g_ascii_dtostr(radius, sizeof(radius), radius_bits * 1000.0 / 64.0);
+		g_string_append_printf(geometries, "|%s", radius);
+	}
+
+	return TRUE;
+}
+
+static gboolean cbs_decode_warning_area(const guint8 *data, guint16 len,
+					struct cbs_decoded *out)
+{
+	guint16 offset = 0;
+	GString *geometries;
+
+	if (len == 0)
+		return TRUE;
+
+	geometries = g_string_new(NULL);
+
+	while (offset < len) {
+		guint16 element_len;
+		guint8 type;
+
+		if (len - offset < 2)
+			goto error;
+
+		type = data[offset] >> 4;
+		element_len = ((data[offset] & 0x0f) << 6) |
+				(data[offset + 1] >> 2);
+
+		if (element_len < 2 || element_len > len - offset)
+			goto error;
+
+		/* The two least significant header bits are reserved. */
+		if (data[offset + 1] & 0x03)
+			goto error;
+
+		/* ATIS-0700041 defines type 1 as a one-octet wait time. */
+		if (type == 1) {
+			if (element_len != 3)
+				goto error;
+
+			out->maximum_wait_time_present = TRUE;
+			out->maximum_wait_time = data[offset + 2];
+		} else if ((type == 2 || type == 3) &&
+				!cbs_append_geometry(geometries, type,
+					data + offset + 2, element_len - 2)) {
+			goto error;
+		} else if (type < 1 || type > 3) {
+			goto error;
+		}
+
+		offset += element_len;
+	}
+
+	out->geometries = g_string_free(geometries, FALSE);
+	return TRUE;
+
+error:
+	out->maximum_wait_time_present = FALSE;
+	out->maximum_wait_time = 0;
+	g_string_free(geometries, TRUE);
+	return FALSE;
+}
+
+static void cbs_decode_geo_fencing_trigger(const guint8 *data, guint16 len,
+					struct cbs_decoded *out)
+{
+	guint16 trigger_len;
+
+	if (len < 2)
+		return;
+
+	trigger_len = ((data[0] & 0x0f) << 3) | (data[1] >> 5);
+	if (trigger_len < 2 || trigger_len > len ||
+			((trigger_len - 2) % 4) != 0)
+		return;
+
+	out->geo_fencing_trigger_type = data[0] >> 4;
+	out->geo_fencing_data = g_memdup(data, trigger_len);
+	out->geo_fencing_data_length = trigger_len;
+}
+
+gboolean cbs_decode_pdu(const unsigned char *pdu, int len,
+			struct cbs_decoded *out)
+{
+	struct cbs header;
+	guint16 message_identifier;
+	int page_count;
+	int body_end;
+	int i;
+
+	memset(out, 0, sizeof(*out));
+
+	if (pdu == NULL || len < 6)
+		return FALSE;
+
+	if (len <= 88) {
+		struct cbs *page;
+
+		if (!cbs_decode(pdu, len, &header))
+			return FALSE;
+
+		page = g_memdup(&header, sizeof(header));
+		out->pages = g_slist_append(NULL, page);
+		message_identifier = header.message_identifier;
+
+		/* The DBGF trigger body starts after its page-count octet. */
+		if (message_identifier == 0x1130 && len > 7)
+			cbs_decode_geo_fencing_trigger(pdu + 7, len - 7, out);
+
+		return TRUE;
+	}
+
+	/*
+	 * 3GPP TS 23.041 UMTS framing: message type, message identifier,
+	 * serial number, DCS, page count, followed by 82 data octets and one
+	 * useful-length octet per page. Optional WAC data follows the pages.
+	 */
+	if (len < 90 || pdu[0] != 1)
+		return FALSE;
+
+	page_count = pdu[6];
+	if (page_count < 1 || page_count > CBS_MAX_PAGES)
+		return FALSE;
+
+	body_end = 7 + page_count * (CBS_PAGE_SIZE + 1);
+	if (len < body_end)
+		return FALSE;
+
+	memset(&header, 0, sizeof(header));
+	message_identifier = (pdu[1] << 8) | pdu[2];
+	header.gs = (enum cbs_geo_scope) ((pdu[3] >> 6) & 0x03);
+	header.message_code = ((pdu[3] & 0x3f) << 4) |
+			((pdu[4] >> 4) & 0x0f);
+	header.update_number = pdu[4] & 0x0f;
+	header.message_identifier = message_identifier;
+	header.dcs = pdu[5];
+	header.max_pages = page_count;
+
+	for (i = 0; i < page_count; i++) {
+		const int offset = 7 + i * (CBS_PAGE_SIZE + 1);
+		const guint8 page_len = pdu[offset + CBS_PAGE_SIZE];
+		struct cbs *page;
+
+		if (page_len > CBS_PAGE_SIZE)
+			goto error;
+
+		page = g_memdup(&header, sizeof(header));
+		page->page = i + 1;
+		page->udlen = page_len;
+		memcpy(page->ud, pdu + offset, CBS_PAGE_SIZE);
+		out->pages = g_slist_append(out->pages, page);
+	}
+
+	if (len > body_end) {
+		guint16 warning_area_length;
+
+		/*
+		 * WAC is optional. As in AOSP, malformed WAC must not cause the
+		 * warning body itself to be discarded.
+		 */
+		if (len - body_end >= 2) {
+			warning_area_length = pdu[body_end] |
+					(pdu[body_end + 1] << 8);
+			if (warning_area_length == len - body_end - 2 &&
+					cbs_decode_warning_area(pdu + body_end + 2,
+						warning_area_length, out)) {
+				out->warning_area = g_memdup(pdu + body_end + 2,
+						warning_area_length);
+				out->warning_area_length = warning_area_length;
+			}
+		}
+	}
+
+	if (message_identifier == 0x1130) {
+		const struct cbs *page = out->pages->data;
+
+		cbs_decode_geo_fencing_trigger(page->ud, page->udlen, out);
+	}
+
+	return TRUE;
+
+error:
+	cbs_decoded_clear(out);
+	return FALSE;
+}
+
+void cbs_decoded_clear(struct cbs_decoded *decoded)
+{
+	g_slist_free_full(decoded->pages, g_free);
+	g_free(decoded->warning_area);
+	g_free(decoded->geometries);
+	g_free(decoded->geo_fencing_data);
+	memset(decoded, 0, sizeof(*decoded));
 }
 
 gboolean cbs_encode(const struct cbs *cbs, int *len, unsigned char *pdu)
@@ -4108,15 +4390,19 @@ char *cbs_decode_text(GSList *cbs_list, char *iso639_lang)
 {
 	GSList *l;
 	const struct cbs *cbs;
-	enum sms_charset uninitialized_var(charset);
-	enum cbs_language lang;
-	gboolean uninitialized_var(iso639);
-	int bufsize = 0;
+	enum sms_charset charset = SMS_CHARSET_8BIT;
+	enum cbs_language lang = CBS_LANGUAGE_UNSPECIFIED;
+	gboolean iso639 = FALSE;
+	gsize capacity = 0;
+	gsize used = 0;
+	guint page_count = 0;
 	unsigned char *buf;
 	char *utf8;
 
 	if (cbs_list == NULL)
 		return NULL;
+
+	iso639_lang[0] = '\0';
 
 	/*
 	 * CBS can only come from the network, so we're much less lenient
@@ -4125,17 +4411,23 @@ char *cbs_decode_text(GSList *cbs_list, char *iso639_lang)
 	 */
 	for (l = cbs_list; l; l = l->next) {
 		enum sms_charset curch;
+		enum cbs_language curlang;
 		gboolean curiso;
+		gsize page_capacity;
 
 		cbs = l->data;
+		if (cbs == NULL || ++page_count > CBS_MAX_PAGES ||
+				cbs->udlen > CBS_PAGE_SIZE)
+			return NULL;
 
 		if (!cbs_dcs_decode(cbs->dcs, NULL, NULL,
-					&curch, NULL, &lang, &curiso))
+					&curch, NULL, &curlang, &curiso))
 			return NULL;
 
 		if (l == cbs_list) {
 			iso639 = curiso;
 			charset = curch;
+			lang = curlang;
 		}
 
 		if (curch != charset)
@@ -4148,44 +4440,69 @@ char *cbs_decode_text(GSList *cbs_list, char *iso639_lang)
 			return NULL;
 
 		if (curch == SMS_CHARSET_7BIT) {
-			bufsize += CBS_MAX_GSM_CHARS;
+			page_capacity = (cbs->udlen * 8) / 7;
+			if (page_capacity > CBS_MAX_GSM_CHARS)
+				page_capacity = CBS_MAX_GSM_CHARS;
 
-			if (iso639)
-				bufsize -= 3;
+			if (iso639) {
+				if (page_capacity < 3)
+					return NULL;
+				page_capacity -= 3;
+			}
 		} else {
-			bufsize += cbs->udlen;
+			page_capacity = cbs->udlen;
 
-			if (iso639)
-				bufsize -= 2;
+			if (iso639) {
+				if (page_capacity < 2)
+					return NULL;
+				page_capacity -= 2;
+			}
+
+			/* UCS-2 code units require an even number of octets. */
+			page_capacity &= ~((gsize) 1);
 		}
+
+		capacity += page_capacity;
 	}
 
-	if (lang) {
+	if (iso639 || lang != CBS_LANGUAGE_UNSPECIFIED) {
 		cbs = cbs_list->data;
 
 		if (iso639) {
 			struct sms_udh_iter iter;
+			long written = 0;
+			int indicator_len;
 			int taken = 0;
 
 			if (sms_udh_iter_init_from_cbs(cbs, &iter))
 				taken = sms_udh_iter_get_udh_length(&iter) + 1;
 
-			unpack_7bit_own_buf(cbs->ud + taken, cbs->udlen - taken,
+			indicator_len = charset == SMS_CHARSET_7BIT ? 3 : 2;
+			if (taken > cbs->udlen ||
+					cbs->udlen - taken < indicator_len ||
+					unpack_7bit_own_buf(cbs->ud + taken,
+					indicator_len,
 						taken, false, 2,
-						NULL, 0,
-						(unsigned char *)iso639_lang);
+						&written, 0,
+						(unsigned char *)iso639_lang) == NULL ||
+					written != 2)
+				return NULL;
+
 			iso639_lang[2] = '\0';
 		} else {
 			iso639_2_from_language(lang, iso639_lang);
 		}
 	}
 
-	buf = g_new(unsigned char, bufsize);
-	bufsize = 0;
+	if (capacity == 0)
+		return g_strdup("");
+
+	buf = g_new(unsigned char, capacity);
 
 	for (l = cbs_list; l; l = l->next) {
 		const guint8 *ud;
 		struct sms_udh_iter iter;
+		int available;
 		int taken = 0;
 
 		cbs = l->data;
@@ -4193,28 +4510,41 @@ char *cbs_decode_text(GSList *cbs_list, char *iso639_lang)
 
 		if (sms_udh_iter_init_from_cbs(cbs, &iter))
 			taken = sms_udh_iter_get_udh_length(&iter) + 1;
+		if (taken > cbs->udlen)
+			goto error;
+
+		available = cbs->udlen - taken;
 
 		if (charset == SMS_CHARSET_7BIT) {
 			unsigned char unpacked[CBS_MAX_GSM_CHARS];
-			long written;
+			long written = 0;
 			int max_chars;
 			int i;
 
+			if (available == 0)
+				continue;
+
 			max_chars =
 				sms_text_capacity_gsm(CBS_MAX_GSM_CHARS, taken);
+			if (max_chars <= 0 || max_chars > CBS_MAX_GSM_CHARS)
+				goto error;
 
-			unpack_7bit_own_buf(ud + taken, cbs->udlen - taken,
+			if (unpack_7bit_own_buf(ud + taken, available,
 						taken, false, max_chars,
-						&written, 0, unpacked);
+						&written, 0, unpacked) == NULL ||
+					written < 0 || written > CBS_MAX_GSM_CHARS)
+				goto error;
 
 			i = iso639 ? 3 : 0;
+			if (i > written)
+				goto error;
 
 			/*
 			 * CR is a padding character, which means we can
 			 * safely discard everything afterwards if there are
 			 * only trailing CR characters.
 			 */
-			for (; i < written; i++, bufsize++) {
+			for (; i < written; i++) {
 				if (unpacked[i] == '\r') {
 					int j;
 
@@ -4226,7 +4556,9 @@ char *cbs_decode_text(GSList *cbs_list, char *iso639_lang)
 						break;
 				}
 
-				buf[bufsize] = unpacked[i];
+				if (used >= capacity)
+					goto error;
+				buf[used++] = unpacked[i];
 			}
 
 			/*
@@ -4237,9 +4569,8 @@ char *cbs_decode_text(GSList *cbs_list, char *iso639_lang)
 			 * the check here since the specification isn't clear
 			 */
 		} else {
-			int num_ucs2_chars = (cbs->udlen - taken) >> 1;
 			int i = taken;
-			int max_offset = taken + num_ucs2_chars * 2;
+			int max_offset = taken + (available & ~1);
 
 			/*
 			 * It is completely unclear how UCS2 chars are handled
@@ -4247,8 +4578,9 @@ char *cbs_decode_text(GSList *cbs_list, char *iso639_lang)
 			 * For now do the best we can.
 			 */
 			if (iso639) {
+				if (available < 2)
+					goto error;
 				i += 2;
-				num_ucs2_chars -= 1;
 			}
 
 			while (i < max_offset) {
@@ -4264,23 +4596,34 @@ char *cbs_decode_text(GSList *cbs_list, char *iso639_lang)
 						break;
 				}
 
-				buf[bufsize] = ud[i];
-				buf[bufsize + 1] = ud[i + 1];
+				if (used + 2 > capacity)
+					goto error;
+				buf[used] = ud[i];
+				buf[used + 1] = ud[i + 1];
 
-				bufsize += 2;
+				used += 2;
 				i += 2;
 			}
 		}
 	}
 
+	if (used == 0) {
+		g_free(buf);
+		return g_strdup("");
+	}
+
 	if (charset == SMS_CHARSET_7BIT)
-		utf8 = convert_gsm_to_utf8(buf, bufsize, NULL, NULL, 0);
+		utf8 = convert_gsm_to_utf8(buf, used, NULL, NULL, 0);
 	else
-		utf8 = g_convert((char *) buf, bufsize, "UTF-8//TRANSLIT",
+		utf8 = g_convert((char *) buf, used, "UTF-8//TRANSLIT",
 					"UCS-2BE", NULL, NULL, NULL);
 
 	g_free(buf);
 	return utf8;
+
+error:
+	g_free(buf);
+	return NULL;
 }
 
 static inline gboolean cbs_is_update_newer(unsigned int n, unsigned int o)

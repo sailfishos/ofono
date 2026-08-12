@@ -97,7 +97,42 @@ static void cbs_dispatch_base_station_id(struct ofono_cbs *cbs, const char *id)
 	__ofono_netreg_set_base_station_name(cbs->netreg, id);
 }
 
+static void cbs_dict_append_identity(DBusMessageIter *dict,
+					struct ofono_cbs *cbs,
+					const struct cbs *page)
+{
+	dbus_uint16_t serial_number = (page->gs << 14) |
+				(page->message_code << 4) | page->update_number;
+	dbus_uint16_t message_identifier = page->message_identifier;
+	dbus_uint16_t message_code = page->message_code;
+	dbus_uint16_t location_area_code = cbs->lac;
+	dbus_uint32_t cell_id = cbs->ci;
+	guint8 geographical_scope = page->gs;
+	guint8 update_number = page->update_number;
+	const char *mcc = cbs->mcc;
+	const char *mnc = cbs->mnc;
+
+	ofono_dbus_dict_append(dict, "MessageIdentifier", DBUS_TYPE_UINT16,
+				&message_identifier);
+	ofono_dbus_dict_append(dict, "SerialNumber", DBUS_TYPE_UINT16,
+				&serial_number);
+	ofono_dbus_dict_append(dict, "GeographicalScope", DBUS_TYPE_BYTE,
+				&geographical_scope);
+	ofono_dbus_dict_append(dict, "MessageCode", DBUS_TYPE_UINT16,
+				&message_code);
+	ofono_dbus_dict_append(dict, "UpdateNumber", DBUS_TYPE_BYTE,
+				&update_number);
+	ofono_dbus_dict_append(dict, "MobileCountryCode", DBUS_TYPE_STRING, &mcc);
+	ofono_dbus_dict_append(dict, "MobileNetworkCode", DBUS_TYPE_STRING, &mnc);
+	if (cbs->lac >= 0)
+		ofono_dbus_dict_append(dict, "LocationAreaCode", DBUS_TYPE_UINT16,
+						&location_area_code);
+	if (cbs->ci >= 0)
+		ofono_dbus_dict_append(dict, "CellId", DBUS_TYPE_UINT32, &cell_id);
+}
+
 static void cbs_dispatch_emergency(struct ofono_cbs *cbs, const char *message,
+					const struct cbs *page,
 					enum etws_topic_type topic,
 					gboolean alert, gboolean popup)
 {
@@ -146,6 +181,7 @@ static void cbs_dispatch_emergency(struct ofono_cbs *cbs, const char *message,
 
 	ofono_dbus_dict_append(&dict, "EmergencyType",
 				DBUS_TYPE_STRING, &emergency_str);
+	cbs_dict_append_identity(&dict, cbs, page);
 
 	boolean = alert;
 	ofono_dbus_dict_append(&dict, "EmergencyAlert",
@@ -171,14 +207,121 @@ static void cbs_dispatch_text(struct ofono_cbs *cbs, enum sms_class cls,
 				DBUS_TYPE_INVALID);
 }
 
+static void cbs_dict_append_byte_array(DBusMessageIter *dict, const char *key,
+					const guint8 *bytes, int len)
+{
+	DBusMessageIter entry;
+	DBusMessageIter variant;
+	DBusMessageIter array;
+	const guint8 *data = bytes;
+
+	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY,
+					NULL, &entry);
+	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &key);
+	dbus_message_iter_open_container(&entry, DBUS_TYPE_VARIANT, "ay",
+					&variant);
+	dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "y", &array);
+	dbus_message_iter_append_fixed_array(&array, DBUS_TYPE_BYTE, &data, len);
+	dbus_message_iter_close_container(&variant, &array);
+	dbus_message_iter_close_container(&entry, &variant);
+	dbus_message_iter_close_container(dict, &entry);
+}
+
+static char *cbs_geo_fencing_reference_list(
+					const struct cbs_decoded *decoded)
+{
+	const guint8 *data = decoded->geo_fencing_data;
+	GString *list = g_string_new(NULL);
+	int offset;
+
+	for (offset = 2; offset + 3 < decoded->geo_fencing_data_length;
+					offset += 4) {
+		const guint16 message_identifier =
+				(data[offset] << 8) | data[offset + 1];
+		const guint16 serial_number =
+				(data[offset + 2] << 8) | data[offset + 3];
+
+		if (list->len)
+			g_string_append_c(list, ';');
+		g_string_append_printf(list, "%u,%u", message_identifier,
+					serial_number);
+	}
+
+	return g_string_free(list, FALSE);
+}
+
+static void cbs_dispatch_with_properties(struct ofono_cbs *cbs,
+					const struct cbs *page,
+					const struct cbs_decoded *decoded,
+					const char *language,
+					const char *message)
+{
+	DBusConnection *conn = ofono_dbus_get_connection();
+	const char *path = __ofono_atom_get_path(cbs->atom);
+	DBusMessage *signal;
+	DBusMessageIter iter;
+	DBusMessageIter dict;
+	guint8 data_coding_scheme = page->dcs;
+	guint8 page_count = page->max_pages;
+
+	signal = dbus_message_new_signal(path, OFONO_CELL_BROADCAST_INTERFACE,
+					"IncomingBroadcastWithProperties");
+	if (signal == NULL)
+		return;
+
+	dbus_message_iter_init_append(signal, &iter);
+	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &message);
+	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+					OFONO_PROPERTIES_ARRAY_SIGNATURE, &dict);
+
+	cbs_dict_append_identity(&dict, cbs, page);
+	ofono_dbus_dict_append(&dict, "DataCodingScheme", DBUS_TYPE_BYTE,
+					&data_coding_scheme);
+	if (language[0] != '\0')
+		ofono_dbus_dict_append(&dict, "Language", DBUS_TYPE_STRING,
+						&language);
+	ofono_dbus_dict_append(&dict, "PageCount", DBUS_TYPE_BYTE, &page_count);
+	if (decoded->warning_area_length) {
+		cbs_dict_append_byte_array(&dict, "WarningAreaCoordinates",
+				decoded->warning_area, decoded->warning_area_length);
+		if (decoded->geometries[0] != '\0') {
+			const char *geometries = decoded->geometries;
+
+			ofono_dbus_dict_append(&dict, "Geometries", DBUS_TYPE_STRING,
+						&geometries);
+		}
+	}
+
+	if (decoded->maximum_wait_time_present)
+		ofono_dbus_dict_append(&dict, "MaximumWaitTime", DBUS_TYPE_BYTE,
+						&decoded->maximum_wait_time);
+
+	if (decoded->geo_fencing_data_length) {
+		char *reference_list = cbs_geo_fencing_reference_list(decoded);
+		const char *references = reference_list;
+
+		ofono_dbus_dict_append(&dict, "DeviceBasedGeoFencingType",
+				DBUS_TYPE_BYTE, &decoded->geo_fencing_trigger_type);
+		ofono_dbus_dict_append(&dict,
+				"DeviceBasedGeoFencingReferenceList",
+				DBUS_TYPE_STRING, &references);
+		g_free(reference_list);
+	}
+
+	dbus_message_iter_close_container(&iter, &dict);
+	g_dbus_send_message(conn, signal);
+}
+
 void ofono_cbs_notify(struct ofono_cbs *cbs, const unsigned char *pdu,
 				int pdu_len)
 {
-	struct cbs c;
+	struct cbs_decoded decoded;
+	const struct cbs *c;
 	enum sms_class cls;
 	gboolean udhi;
 	gboolean comp;
 	GSList *cbs_list;
+	GSList *l;
 	enum sms_charset charset;
 	char *message;
 	char iso639_lang[3];
@@ -186,76 +329,91 @@ void ofono_cbs_notify(struct ofono_cbs *cbs, const unsigned char *pdu,
 	if (cbs->assembly == NULL)
 		return;
 
-	if (!cbs_decode(pdu, pdu_len, &c)) {
+	if (!cbs_decode_pdu(pdu, pdu_len, &decoded)) {
 		ofono_error("Unable to decode CBS PDU");
 		return;
 	}
 
-	if (cbs_topic_in_range(c.message_identifier, cbs->efcbmid_contents)) {
+	c = decoded.pages->data;
+
+	if (cbs_topic_in_range(c->message_identifier, cbs->efcbmid_contents)) {
+		GSList *l;
+
 		if (cbs->sim == NULL)
-			return;
+			goto decoded_out;
 
 		if (!__ofono_sim_service_available(cbs->sim,
 					SIM_UST_SERVICE_DATA_DOWNLOAD_SMS_CB,
 					SIM_SST_SERVICE_DATA_DOWNLOAD_SMS_CB))
-			return;
+			goto decoded_out;
 
-		if (cbs->stk)
-			__ofono_cbs_sim_download(cbs->stk, &c);
+		if (cbs->stk) {
+			for (l = decoded.pages; l; l = l->next)
+				__ofono_cbs_sim_download(cbs->stk, l->data);
+		}
 
-		return;
+		goto decoded_out;
 	}
 
 	if (!cbs->powered) {
 		ofono_error("Ignoring CBS because powered is off");
-		return;
+		goto decoded_out;
 	}
 
-	if (!cbs_dcs_decode(c.dcs, &udhi, &cls, &charset, &comp, NULL, NULL)) {
+	if (!cbs_dcs_decode(c->dcs, &udhi, &cls, &charset, &comp, NULL, NULL)) {
 		ofono_error("Unknown / Reserved DCS.  Ignoring");
-		return;
+		goto decoded_out;
 	}
 
 	if (udhi) {
 		ofono_error("CBS messages with UDH not supported");
-		return;
+		goto decoded_out;
 	}
 
 	if (charset == SMS_CHARSET_8BIT) {
 		ofono_error("Datagram CBS not supported");
-		return;
+		goto decoded_out;
 	}
 
 	if (comp) {
 		ofono_error("CBS messages with compression not supported");
-		return;
+		goto decoded_out;
 	}
 
-	cbs_list = cbs_assembly_add_page(cbs->assembly, &c);
+	cbs_list = NULL;
+	for (l = decoded.pages; l; l = l->next) {
+		GSList *completed = cbs_assembly_add_page(cbs->assembly,
+						l->data);
+
+		if (completed)
+			cbs_list = completed;
+	}
 
 	if (cbs_list == NULL)
-		return;
+		goto decoded_out;
 
 	message = cbs_decode_text(cbs_list, iso639_lang);
 
 	if (message == NULL)
 		goto out;
 
-	if (c.message_identifier >= ETWS_TOPIC_TYPE_EARTHQUAKE &&
-			c.message_identifier <= ETWS_TOPIC_TYPE_EMERGENCY) {
+	c = cbs_list->data;
+
+	if (c->message_identifier >= ETWS_TOPIC_TYPE_EARTHQUAKE &&
+			c->message_identifier <= ETWS_TOPIC_TYPE_EMERGENCY) {
 		gboolean alert = FALSE;
 		gboolean popup = FALSE;
 
 		/* 3GPP 23.041 9.4.1.2.1: Alert is encoded in bit 9 */
-		if (c.message_code & (1 << 9))
+		if (c->message_code & (1 << 9))
 			alert = TRUE;
 
 		/* 3GPP 23.041 9.4.1.2.1: Popup is encoded in bit 8 */
-		if (c.message_code & (1 << 8))
+		if (c->message_code & (1 << 8))
 			popup = TRUE;
 
-		cbs_dispatch_emergency(cbs, message,
-					c.message_identifier, alert, popup);
+		cbs_dispatch_emergency(cbs, message, c,
+					c->message_identifier, alert, popup);
 		goto out;
 	}
 
@@ -263,16 +421,21 @@ void ofono_cbs_notify(struct ofono_cbs *cbs, const unsigned char *pdu,
 	 * 3GPP 23.041: NOTE 5:	Code 00 is intended for use by the
 	 * network operators for base station IDs.
 	 */
-	if (c.gs == CBS_GEO_SCOPE_CELL_IMMEDIATE) {
+	if (c->gs == CBS_GEO_SCOPE_CELL_IMMEDIATE &&
+			c->message_identifier != 0x1130) {
 		cbs_dispatch_base_station_id(cbs, message);
 		goto out;
 	}
 
-	cbs_dispatch_text(cbs, cls, c.message_identifier, message);
+	cbs_dispatch_with_properties(cbs, c, &decoded, iso639_lang, message);
+	cbs_dispatch_text(cbs, cls, c->message_identifier, message);
 
 out:
 	g_free(message);
 	g_slist_free_full(cbs_list, g_free);
+
+decoded_out:
+	cbs_decoded_clear(&decoded);
 }
 
 static DBusMessage *cbs_get_properties(DBusConnection *conn,
@@ -552,6 +715,9 @@ static const GDBusSignalTable cbs_signals[] = {
 			GDBUS_ARGS({ "property", "s" }, { "value", "v" })) },
 	{ GDBUS_SIGNAL("IncomingBroadcast",
 			GDBUS_ARGS({ "message", "s" }, { "channel", "q" })) },
+	{ GDBUS_SIGNAL("IncomingBroadcastWithProperties",
+			GDBUS_ARGS({ "message", "s" },
+					{ "properties", "a{sv}" })) },
 	{ GDBUS_SIGNAL("EmergencyBroadcast",
 			GDBUS_ARGS({ "message", "s" }, { "dict", "a{sv}" })) },
 	{ }
@@ -676,6 +842,8 @@ struct ofono_cbs *ofono_cbs_create(struct ofono_modem *modem,
 		return NULL;
 
 	cbs->assembly = cbs_assembly_new();
+	cbs->lac = -1;
+	cbs->ci = -1;
 	cbs->atom = __ofono_modem_add_atom(modem, OFONO_ATOM_TYPE_CBS,
 						cbs_remove, cbs);
 

@@ -36,6 +36,45 @@ Signals		PropertyChanged(string name, variant value)
 			Please note that base station name broadcasts are
 			handled by the NetworkRegistration interface.
 
+		IncomingBroadcastWithProperties(string text, dict properties)
+
+			This signal is emitted before IncomingBroadcast for an
+			ordinary decoded cell broadcast. ETWS messages continue to
+			use EmergencyBroadcast and base station identifiers remain
+			internal to NetworkRegistration. The dictionary contains:
+
+				MessageIdentifier - uint16 message identifier
+				SerialNumber - uint16 complete serial number
+				GeographicalScope - byte geographical scope
+				MessageCode - uint16 message code
+				UpdateNumber - byte update number
+				DataCodingScheme - byte data coding scheme
+				Language - string ISO 639 language code, when known
+				PageCount - byte number of CBS pages
+				MobileCountryCode - string MCC, empty when unknown
+				MobileNetworkCode - string MNC, empty when unknown
+				LocationAreaCode - uint16, when known
+				CellId - uint32, when known
+
+			UMTS warning messages can additionally contain:
+
+				WarningAreaCoordinates - byte array containing the
+					validated WAC elements, without its two-octet
+					length field
+				Geometries - string containing normalized WAC
+					geometry entries separated by semicolons;
+					entries use circle|latitude,longitude|radius
+					in metres or polygon|latitude,longitude|...
+				MaximumWaitTime - byte maximum waiting time in
+					seconds, when present
+
+			Message identifier 4400 can additionally contain:
+
+				DeviceBasedGeoFencingType - byte trigger type
+				DeviceBasedGeoFencingReferenceList - string of
+					decimal messageIdentifier,serialNumber pairs
+					separated by semicolons
+
 		EmergencyBroadcast(string text, dict properties)
 
 			This signal is emitted whenever an ETWS cell broadcast
@@ -47,6 +86,15 @@ Signals		PropertyChanged(string name, variant value)
 							"Tsunami",
 							"Earthquake+Tsunami",
 							"Other"
+				MessageIdentifier - uint16 message identifier
+				SerialNumber - uint16 complete serial number
+				GeographicalScope - byte geographical scope
+				MessageCode - uint16 message code
+				UpdateNumber - byte update number
+				MobileCountryCode - string mobile country code
+				MobileNetworkCode - string mobile network code
+				LocationAreaCode - optional uint16 location area code
+				CellId - optional uint32 cell identifier
 				EmergencyAlert - boolean value hinting whether
 						an extra emergency indicator
 						should be activated (e.g.

@@ -50,6 +50,7 @@ static const struct error_mapping_entry errno_errors_mapping[] = {
 	{ ENOSYS,      __ofono_error_not_implemented },
 	{ ETIMEDOUT,   __ofono_error_timed_out },
 	{ EINPROGRESS, __ofono_error_busy },
+	{ ENETDOWN,    __ofono_error_not_available },
 	{ }
 };
 

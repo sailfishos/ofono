@@ -62,6 +62,7 @@ struct ims_call;
 struct ofono_ims {
 	int reg_info;
 	int ext_info;
+	enum ofono_ims_registration_technology registration_technology;
 	const struct ofono_ims_driver *driver;
 	void *driver_data;
 	struct ofono_atom *atom;
@@ -105,6 +106,9 @@ struct ims_call {
 static GSList *g_drivers = NULL;
 
 static const char *reg_strategy_name[] = { "disabled", "enabled", "auto" };
+static const char *registration_technology_name[] = {
+	"unknown", "cellular", "iwlan"
+};
 
 static gboolean ims_registration_recheck_cb(gpointer user_data);
 
@@ -393,6 +397,9 @@ static DBusMessage *ims_get_properties(DBusConnection *conn,
 
 	value = ims->reg_info ? TRUE : FALSE;
 	ofono_dbus_dict_append(&dict, "Registered", DBUS_TYPE_BOOLEAN, &value);
+	ofono_dbus_dict_append(&dict, "RegistrationTechnology", DBUS_TYPE_STRING,
+			registration_technology_name +
+			ims->registration_technology);
 	ofono_dbus_dict_append(&dict, REGISTRATION_PROP, DBUS_TYPE_STRING,
 					reg_strategy_name + ims->reg_strategy);
 
@@ -508,6 +515,27 @@ static void ims_set_registered(struct ofono_ims *ims, ofono_bool_t status)
 						&new_value);
 }
 
+void ofono_ims_registration_technology_notify(struct ofono_ims *ims,
+				enum ofono_ims_registration_technology technology)
+{
+	const char *path;
+	DBusConnection *conn;
+	const char *value;
+
+	if (ims == NULL || technology < OFONO_IMS_REGISTRATION_TECHNOLOGY_UNKNOWN ||
+			technology > OFONO_IMS_REGISTRATION_TECHNOLOGY_IWLAN ||
+			ims->registration_technology == technology)
+		return;
+
+	ims->registration_technology = technology;
+	path = __ofono_atom_get_path(ims->atom);
+	conn = ofono_dbus_get_connection();
+	value = registration_technology_name[technology];
+	ofono_dbus_signal_property_changed(conn, path, OFONO_IMS_INTERFACE,
+					"RegistrationTechnology",
+					DBUS_TYPE_STRING, &value);
+}
+
 void ofono_ims_status_notify(struct ofono_ims *ims, int reg_info, int ext_info)
 {
 	dbus_bool_t new_reg_info;
@@ -524,6 +552,9 @@ void ofono_ims_status_notify(struct ofono_ims *ims, int reg_info, int ext_info)
 
 	ims->reg_check_pending = TRUE;
 	new_reg_info = reg_info ? TRUE : FALSE;
+	if (!new_reg_info)
+		ofono_ims_registration_technology_notify(ims,
+			OFONO_IMS_REGISTRATION_TECHNOLOGY_UNKNOWN);
 	ims_set_registered(ims, new_reg_info);
 
 	if (ext_info < 0)
@@ -677,6 +708,8 @@ struct ofono_ims *ofono_ims_create(struct ofono_modem *modem,
 
 	ims->reg_info = 0;
 	ims->ext_info = -1;
+	ims->registration_technology =
+		OFONO_IMS_REGISTRATION_TECHNOLOGY_UNKNOWN;
 	ims->reg_strategy = IMS_REG_DEFAULT;
 	ims->reg_check_pending = TRUE;
 	ims->q = __ofono_dbus_queue_new();

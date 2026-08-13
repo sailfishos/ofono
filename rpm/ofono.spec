@@ -23,6 +23,7 @@ Requires:   dbus
 Requires:   systemd
 Requires:   libglibutil >= %{libglibutil_version}
 Requires:   mobile-broadband-provider-info
+Provides:   ofono-voicecall-offline-dial-api = 1
 %{recommend}: ofono-configs
 Requires(preun): systemd
 Requires(post): systemd

@@ -31,6 +31,12 @@ extern "C" {
 
 struct ofono_ims;
 
+enum ofono_ims_registration_technology {
+	OFONO_IMS_REGISTRATION_TECHNOLOGY_UNKNOWN,
+	OFONO_IMS_REGISTRATION_TECHNOLOGY_CELLULAR,
+	OFONO_IMS_REGISTRATION_TECHNOLOGY_IWLAN
+};
+
 /* ext_info bits */
 #define OFONO_IMS_VOICE_CAPABLE 0x1
 #define OFONO_IMS_SMS_CAPABLE 0x4
@@ -55,6 +61,8 @@ struct ofono_ims_driver {
 
 void ofono_ims_status_notify(struct ofono_ims *ims, int reg_info,
 							int ext_info);
+void ofono_ims_registration_technology_notify(struct ofono_ims *ims,
+				enum ofono_ims_registration_technology technology);
 
 int ofono_ims_driver_register(const struct ofono_ims_driver *d);
 void ofono_ims_driver_unregister(const struct ofono_ims_driver *d);

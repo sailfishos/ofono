@@ -52,6 +52,11 @@ Properties	boolean Registered [readonly]
 
 			Contains the current IMS registration state.
 
+		string RegistrationTechnology [readonly]
+
+			Contains the access technology used for IMS registration.
+			Valid values are "unknown", "cellular" and "iwlan".
+
 		boolean VoiceCapable [readonly, optional]
 
 			Boolean representing whether voice call transfer over

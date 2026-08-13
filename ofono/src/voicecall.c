@@ -67,6 +67,7 @@ struct ofono_voicecall {
 	unsigned int sim_state_watch;
 	const struct ofono_voicecall_driver *driver;
 	void *driver_data;
+	ofono_voicecall_offline_dial_check_func offline_dial_check;
 	struct ofono_atom *atom;
 	struct dial_request *dial_req;
 	GQueue *toneq;
@@ -93,6 +94,11 @@ struct voicecall {
 	gboolean dial_result_handled;
 	ofono_bool_t remote_held;
 	ofono_bool_t remote_multiparty;
+	enum ofono_voicecall_bearer bearer;
+};
+
+static const char *voicecall_bearer_name[] = {
+	"unknown", "cellular", "iwlan"
 };
 
 struct dial_request {
@@ -465,6 +471,9 @@ static void append_voicecall_properties(struct voicecall *v,
 	ofono_dbus_dict_append(dict, "RemoteMultiparty", DBUS_TYPE_BOOLEAN,
 				&v->remote_multiparty);
 
+	ofono_dbus_dict_append(dict, "Bearer", DBUS_TYPE_STRING,
+				voicecall_bearer_name + v->bearer);
+
 	if (v->message)
 		ofono_dbus_dict_append(dict, "Information",
 						DBUS_TYPE_STRING, &v->message);
@@ -739,6 +748,27 @@ static const char *voicecall_build_path(struct ofono_voicecall *vc,
 			__ofono_atom_get_path(vc->atom), call->id);
 
 	return path;
+}
+
+static void voicecall_set_bearer(struct voicecall *v,
+				enum ofono_voicecall_bearer bearer,
+				gboolean notify)
+{
+	if (bearer < OFONO_VOICECALL_BEARER_UNKNOWN ||
+			bearer > OFONO_VOICECALL_BEARER_IWLAN ||
+			v->bearer == bearer)
+		return;
+
+	v->bearer = bearer;
+	if (notify) {
+		DBusConnection *conn = ofono_dbus_get_connection();
+		const char *path = voicecall_build_path(v->vc, v->call);
+		const char *value = voicecall_bearer_name[bearer];
+
+		ofono_dbus_signal_property_changed(conn, path,
+					OFONO_VOICECALL_INTERFACE, "Bearer",
+					DBUS_TYPE_STRING, &value);
+	}
 }
 
 static void voicecall_emit_disconnect_reason(struct voicecall *call,
@@ -1666,16 +1696,26 @@ void ofono_voicecall_filter_notify(struct ofono_voicecall *vc)
 	}
 }
 
+static gboolean voicecall_can_dial(struct ofono_voicecall *vc)
+{
+	struct ofono_modem *modem = __ofono_atom_get_modem(vc->atom);
+
+	return ofono_modem_get_online(modem) ||
+			(vc->offline_dial_check && vc->offline_dial_check(vc));
+}
+
 static void dial_filter_cb(enum ofono_voicecall_filter_dial_result result,
 							void *req_data)
 {
 	struct dial_filter_req *req = req_data;
 
-	if (result == OFONO_VOICECALL_FILTER_DIAL_BLOCK) {
+	if (result == OFONO_VOICECALL_FILTER_DIAL_BLOCK ||
+			!voicecall_can_dial(req->vc)) {
 		struct ofono_error error;
 
 		error.type = OFONO_ERROR_TYPE_ERRNO;
-		error.error = EACCES;
+		error.error = result == OFONO_VOICECALL_FILTER_DIAL_BLOCK ?
+							EACCES : ENETDOWN;
 		req->cb(&error, req->data);
 	} else {
 		struct ofono_voicecall *vc = req->vc;
@@ -1717,7 +1757,7 @@ static int voicecall_dial(struct ofono_voicecall *vc, const char *number,
 	if (!valid_long_phone_number_format(number))
 		return -EINVAL;
 
-	if (ofono_modem_get_online(modem) == FALSE)
+	if (!voicecall_can_dial(vc))
 		return -ENETDOWN;
 
 	if (vc->driver->dial == NULL)
@@ -2741,13 +2781,18 @@ void ofono_voicecall_disconnected(struct ofono_voicecall *vc, int id,
 	vc->call_list = g_slist_remove(vc->call_list, call);
 }
 
-void ofono_voicecall_notify(struct ofono_voicecall *vc,
-				const struct ofono_call *call)
+void ofono_voicecall_notify_with_bearer(struct ofono_voicecall *vc,
+				const struct ofono_call *call,
+				enum ofono_voicecall_bearer bearer)
 {
 	struct ofono_modem *modem = __ofono_atom_get_modem(vc->atom);
 	GSList *l;
 	struct voicecall *v = NULL;
 	struct ofono_call *newcall;
+
+	if (bearer < OFONO_VOICECALL_BEARER_UNKNOWN ||
+			bearer > OFONO_VOICECALL_BEARER_IWLAN)
+		bearer = OFONO_VOICECALL_BEARER_UNKNOWN;
 
 	DBG("Got a voicecall event, status: %s (%d), id: %u, number: %s"
 			" called_number: %s, called_name %s",
@@ -2769,6 +2814,7 @@ void ofono_voicecall_notify(struct ofono_voicecall *vc,
 						call->clip_validity);
 		voicecall_set_call_calledid(v, &call->called_number);
 		voicecall_set_call_name(v, call->name, call->cnap_validity);
+		voicecall_set_bearer(v, bearer, FALSE);
 
 		/* And restart the filtering */
 		__ofono_voicecall_filter_chain_restart(vc->filters, v->call);
@@ -2780,12 +2826,14 @@ void ofono_voicecall_notify(struct ofono_voicecall *vc,
 
 	if (l) {
 		DBG("Found call with id: %d", call->id);
-		voicecall_set_call_status(l->data, call->status);
-		voicecall_set_call_lineid(l->data, &call->phone_number,
+		v = l->data;
+		voicecall_set_call_status(v, call->status);
+		voicecall_set_call_lineid(v, &call->phone_number,
 						call->clip_validity);
-		voicecall_set_call_calledid(l->data, &call->called_number);
-		voicecall_set_call_name(l->data, call->name,
+		voicecall_set_call_calledid(v, &call->called_number);
+		voicecall_set_call_name(v, call->name,
 						call->cnap_validity);
+		voicecall_set_bearer(v, bearer, TRUE);
 
 		return;
 	}
@@ -2805,6 +2853,7 @@ void ofono_voicecall_notify(struct ofono_voicecall *vc,
 		ofono_error("Unable to allocate voicecall_data");
 		goto error;
 	}
+	voicecall_set_bearer(v, bearer, FALSE);
 
 	if (vc->flags & VOICECALL_FLAG_STK_MODEM_CALLSETUP) {
 		struct dial_request *req = vc->dial_req;
@@ -2882,6 +2931,13 @@ error:
 
 	if (v)
 		g_free(v);
+}
+
+void ofono_voicecall_notify(struct ofono_voicecall *vc,
+				const struct ofono_call *call)
+{
+	ofono_voicecall_notify_with_bearer(vc, call,
+				OFONO_VOICECALL_BEARER_UNKNOWN);
 }
 
 void ofono_voicecall_mpty_hint(struct ofono_voicecall *vc, unsigned int ids)
@@ -4156,6 +4212,12 @@ void *ofono_voicecall_get_data(struct ofono_voicecall *vc)
 	return vc->driver_data;
 }
 
+void ofono_voicecall_set_offline_dial_check(struct ofono_voicecall *vc,
+				ofono_voicecall_offline_dial_check_func check)
+{
+	vc->offline_dial_check = check;
+}
+
 struct ofono_modem *ofono_voicecall_get_modem(struct ofono_voicecall *vc)
 {
 	return __ofono_atom_get_modem(vc->atom);
@@ -4542,6 +4604,29 @@ static struct voicecall *voicecall_select(struct ofono_voicecall *vc,
 		return vc->call_list->data;
 
 	return NULL;
+}
+
+void ofono_voicecall_bearer_notify(struct ofono_voicecall *vc,
+				unsigned int id,
+				enum ofono_voicecall_bearer bearer)
+{
+	struct voicecall *v;
+	GSList *l;
+
+	if (vc == NULL || bearer < OFONO_VOICECALL_BEARER_UNKNOWN ||
+			bearer > OFONO_VOICECALL_BEARER_IWLAN)
+		return;
+
+	v = voicecall_select(vc, id);
+	if (v != NULL) {
+		voicecall_set_bearer(v, bearer, TRUE);
+		return;
+	}
+
+	l = g_slist_find_custom(vc->incoming_filter_list, GUINT_TO_POINTER(id),
+				call_compare_by_id);
+	if (l != NULL)
+		voicecall_set_bearer(l->data, bearer, FALSE);
 }
 
 static void ssn_mt_remote_held_notify(struct ofono_voicecall *vc,

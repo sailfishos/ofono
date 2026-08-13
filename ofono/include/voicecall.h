@@ -32,8 +32,17 @@ extern "C" {
 struct ofono_modem;
 struct ofono_voicecall;
 
+enum ofono_voicecall_bearer {
+	OFONO_VOICECALL_BEARER_UNKNOWN,
+	OFONO_VOICECALL_BEARER_CELLULAR,
+	OFONO_VOICECALL_BEARER_IWLAN
+};
+
 typedef void (*ofono_voicecall_cb_t)(const struct ofono_error *error,
 					void *data);
+
+typedef ofono_bool_t (*ofono_voicecall_offline_dial_check_func)(
+					struct ofono_voicecall *vc);
 
 /* Voice call related functionality, including ATD, ATA, +CHLD, CTFR, CLCC
  * and VTS.
@@ -152,6 +161,12 @@ void ofono_voicecall_en_list_notify(struct ofono_voicecall *vc,
 
 void ofono_voicecall_notify(struct ofono_voicecall *vc,
 				const struct ofono_call *call);
+void ofono_voicecall_notify_with_bearer(struct ofono_voicecall *vc,
+				const struct ofono_call *call,
+				enum ofono_voicecall_bearer bearer);
+void ofono_voicecall_bearer_notify(struct ofono_voicecall *vc,
+				unsigned int id,
+				enum ofono_voicecall_bearer bearer);
 void ofono_voicecall_disconnected(struct ofono_voicecall *vc, int id,
 				enum ofono_disconnect_reason reason,
 				const struct ofono_error *error);
@@ -177,6 +192,8 @@ void ofono_voicecall_remove(struct ofono_voicecall *vc);
 
 void ofono_voicecall_set_data(struct ofono_voicecall *vc, void *data);
 void *ofono_voicecall_get_data(struct ofono_voicecall *vc);
+void ofono_voicecall_set_offline_dial_check(struct ofono_voicecall *vc,
+				ofono_voicecall_offline_dial_check_func check);
 int ofono_voicecall_get_next_callid(struct ofono_voicecall *vc);
 
 void ofono_voicecall_ssn_mo_notify(struct ofono_voicecall *vc, unsigned int id,

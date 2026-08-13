@@ -183,3 +183,8 @@ Properties	string LineIdentification [readonly]
 
 			Contains the indication whether the voice call is
 			joined in a multiparty call by the remote party or not.
+
+		string Bearer [readonly]
+
+			Contains the bearer currently used by the call. Valid
+			values are "unknown", "cellular" and "iwlan".

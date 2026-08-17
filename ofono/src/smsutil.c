@@ -4412,6 +4412,47 @@ gboolean iso639_2_from_language(enum cbs_language lang, char *iso639)
 	return FALSE;
 }
 
+static char *cbs_decode_8bit_text(GSList *cbs_list)
+{
+	GString *text = g_string_new(NULL);
+	GSList *l;
+
+	for (l = cbs_list; l; l = l->next) {
+		const struct cbs *cbs = l->data;
+		unsigned char unpacked[CBS_PAGE_SIZE];
+		char *utf8;
+		int len = 0;
+		int i;
+
+		for (i = 0; i < cbs->udlen && cbs->ud[i] != 0xff; i++) {
+			if (cbs->ud[i] <= 0x7f)
+				unpacked[len++] = cbs->ud[i];
+			else
+				unpacked[len++] = ' ';
+		}
+
+		if (len > 0 && unpacked[len - 1] == 0x1b)
+			len--;
+
+		while (len > 0 && unpacked[len - 1] == '\r')
+			len--;
+
+		if (len == 0)
+			continue;
+
+		utf8 = convert_gsm_to_utf8(unpacked, len, NULL, NULL, 0);
+		if (utf8 == NULL) {
+			g_string_free(text, TRUE);
+			return NULL;
+		}
+
+		g_string_append(text, utf8);
+		g_free(utf8);
+	}
+
+	return g_string_free(text, FALSE);
+}
+
 char *cbs_decode_text(GSList *cbs_list, char *iso639_lang)
 {
 	GSList *l;
@@ -4462,10 +4503,9 @@ char *cbs_decode_text(GSList *cbs_list, char *iso639_lang)
 		if (curiso != iso639)
 			return NULL;
 
-		if (curch == SMS_CHARSET_8BIT)
-			return NULL;
-
-		if (curch == SMS_CHARSET_7BIT) {
+		if (curch == SMS_CHARSET_8BIT) {
+			page_capacity = cbs->udlen;
+		} else if (curch == SMS_CHARSET_7BIT) {
 			page_capacity = (cbs->udlen * 8) / 7;
 			if (page_capacity > CBS_MAX_GSM_CHARS)
 				page_capacity = CBS_MAX_GSM_CHARS;
@@ -4519,6 +4559,9 @@ char *cbs_decode_text(GSList *cbs_list, char *iso639_lang)
 			iso639_2_from_language(lang, iso639_lang);
 		}
 	}
+
+	if (charset == SMS_CHARSET_8BIT)
+		return cbs_decode_8bit_text(cbs_list);
 
 	if (capacity == 0)
 		return g_strdup("");

@@ -329,7 +329,6 @@ void ofono_cbs_notify(struct ofono_cbs *cbs, const unsigned char *pdu,
 	gboolean comp;
 	GSList *cbs_list;
 	GSList *l;
-	enum sms_charset charset;
 	char *message;
 	char iso639_lang[3];
 
@@ -387,18 +386,13 @@ void ofono_cbs_notify(struct ofono_cbs *cbs, const unsigned char *pdu,
 		goto decoded_out;
 	}
 
-	if (!cbs_dcs_decode(c->dcs, &udhi, &cls, &charset, &comp, NULL, NULL)) {
+	if (!cbs_dcs_decode(c->dcs, &udhi, &cls, NULL, &comp, NULL, NULL)) {
 		ofono_error("Unknown / Reserved DCS.  Ignoring");
 		goto decoded_out;
 	}
 
 	if (udhi) {
 		ofono_error("CBS messages with UDH not supported");
-		goto decoded_out;
-	}
-
-	if (charset == SMS_CHARSET_8BIT) {
-		ofono_error("Datagram CBS not supported");
 		goto decoded_out;
 	}
 

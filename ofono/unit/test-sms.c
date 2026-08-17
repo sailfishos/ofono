@@ -1586,6 +1586,75 @@ static void test_cbs_padding_character(void)
 	g_slist_free(l);
 }
 
+static void test_cbs_8bit_text(void)
+{
+	struct cbs_decoded decoded;
+	unsigned char pdu[88] = { 0 };
+	unsigned char umts[7 + 2 * (CBS_PAGE_SIZE + 1)] = { 0 };
+	char language[3];
+	const int second_page = 7 + CBS_PAGE_SIZE + 1;
+	char *text;
+
+	pdu[2] = 0x00;
+	pdu[3] = 0x32;
+	pdu[4] = 0x44;
+	pdu[5] = 0x11;
+	memset(pdu + 6, '\r', CBS_PAGE_SIZE);
+	memcpy(pdu + 6, "Alert", 5);
+	pdu[11] = 0x1b;
+	pdu[12] = 0x65;
+
+	g_assert(cbs_decode_pdu(pdu, sizeof(pdu), &decoded));
+	text = cbs_decode_text(decoded.pages, language);
+	g_assert_cmpstr(text, ==, "Alert€");
+	g_assert_cmpstr(language, ==, "");
+	g_free(text);
+	cbs_decoded_clear(&decoded);
+
+	/* 0xff terminates the field and high-bit octets become spaces. */
+	memset(pdu, 0, sizeof(pdu));
+	pdu[2] = 0x00;
+	pdu[3] = 0x32;
+	pdu[4] = 0xf4;
+	pdu[5] = 0x11;
+	pdu[6] = 'A';
+	pdu[7] = 0x80;
+	pdu[8] = 'B';
+	pdu[9] = 0xff;
+	pdu[10] = 'C';
+
+	g_assert(cbs_decode_pdu(pdu, 11, &decoded));
+	text = cbs_decode_text(decoded.pages, language);
+	g_assert_cmpstr(text, ==, "A B");
+	g_assert_cmpstr(language, ==, "");
+	g_free(text);
+	cbs_decoded_clear(&decoded);
+
+	/* Terminators, padding and dangling escapes are local to each page. */
+	umts[0] = 1;
+	umts[1] = 0x00;
+	umts[2] = 0x32;
+	umts[5] = 0x44;
+	umts[6] = 2;
+	umts[7] = 'A';
+	umts[8] = '\r';
+	umts[9] = 0x1b;
+	umts[10] = 0xff;
+	umts[7 + CBS_PAGE_SIZE] = 4;
+	umts[second_page] = 'B';
+	umts[second_page + 1] = 0xff;
+	umts[second_page + 2] = 'X';
+	umts[second_page + CBS_PAGE_SIZE] = 3;
+
+	g_assert(cbs_decode_pdu(umts, sizeof(umts), &decoded));
+	g_assert(g_slist_length(decoded.pages) == 2);
+	text = cbs_decode_text(decoded.pages, language);
+	g_assert_cmpstr(text, ==, "AB");
+	g_assert_cmpstr(language, ==, "");
+	g_free(text);
+	cbs_decoded_clear(&decoded);
+}
+
 static void test_cbs_pdu_legacy(void)
 {
 	struct cbs_decoded decoded;
@@ -2313,6 +2382,7 @@ int main(int argc, char **argv)
 
 	g_test_add_func("/testsms/Test CBS Padding Character",
 			test_cbs_padding_character);
+	g_test_add_func("/testsms/Test CBS 8-bit Text", test_cbs_8bit_text);
 	g_test_add_func("/testsms/Test CBS PDU Legacy", test_cbs_pdu_legacy);
 	g_test_add_func("/testsms/Test CBS PDU ETWS Primary",
 			test_cbs_pdu_etws_primary);

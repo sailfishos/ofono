@@ -134,7 +134,8 @@ static void cbs_dict_append_identity(DBusMessageIter *dict,
 static void cbs_dispatch_emergency(struct ofono_cbs *cbs, const char *message,
 					const struct cbs *page,
 					enum etws_topic_type topic,
-					gboolean alert, gboolean popup)
+					gboolean alert, gboolean popup,
+					gboolean primary)
 {
 	DBusConnection *conn = ofono_dbus_get_connection();
 	const char *path = __ofono_atom_get_path(cbs->atom);
@@ -144,7 +145,7 @@ static void cbs_dispatch_emergency(struct ofono_cbs *cbs, const char *message,
 	dbus_bool_t boolean;
 	const char *emergency_str;
 
-	if (topic == ETWS_TOPIC_TYPE_TEST) {
+	if (topic == ETWS_TOPIC_TYPE_TEST && !primary) {
 		ofono_error("Explicitly ignoring ETWS Test messages");
 		return;
 	}
@@ -158,6 +159,9 @@ static void cbs_dispatch_emergency(struct ofono_cbs *cbs, const char *message,
 		break;
 	case ETWS_TOPIC_TYPE_EARTHQUAKE_TSUNAMI:
 		emergency_str = "Earthquake+Tsunami";
+		break;
+	case ETWS_TOPIC_TYPE_TEST:
+		emergency_str = "Test";
 		break;
 	case ETWS_TOPIC_TYPE_EMERGENCY:
 		emergency_str = "Other";
@@ -189,6 +193,9 @@ static void cbs_dispatch_emergency(struct ofono_cbs *cbs, const char *message,
 
 	boolean = popup;
 	ofono_dbus_dict_append(&dict, "Popup", DBUS_TYPE_BOOLEAN, &boolean);
+
+	boolean = primary;
+	ofono_dbus_dict_append(&dict, "Primary", DBUS_TYPE_BOOLEAN, &boolean);
 
 	dbus_message_iter_close_container(&iter, &dict);
 	g_dbus_send_message(conn, signal);
@@ -360,6 +367,26 @@ void ofono_cbs_notify(struct ofono_cbs *cbs, const unsigned char *pdu,
 		goto decoded_out;
 	}
 
+	if (decoded.etws_primary) {
+		enum etws_topic_type topic;
+
+		cbs_list = cbs_assembly_add_page(cbs->assembly, c);
+		if (cbs_list == NULL)
+			goto decoded_out;
+
+		if (decoded.etws_warning_type <= 3)
+			topic = ETWS_TOPIC_TYPE_EARTHQUAKE +
+					decoded.etws_warning_type;
+		else
+			topic = ETWS_TOPIC_TYPE_EMERGENCY;
+
+		cbs_dispatch_emergency(cbs, "", c, topic,
+				decoded.etws_emergency_alert,
+				decoded.etws_popup, TRUE);
+		g_slist_free_full(cbs_list, g_free);
+		goto decoded_out;
+	}
+
 	if (!cbs_dcs_decode(c->dcs, &udhi, &cls, &charset, &comp, NULL, NULL)) {
 		ofono_error("Unknown / Reserved DCS.  Ignoring");
 		goto decoded_out;
@@ -413,7 +440,8 @@ void ofono_cbs_notify(struct ofono_cbs *cbs, const unsigned char *pdu,
 			popup = TRUE;
 
 		cbs_dispatch_emergency(cbs, message, c,
-					c->message_identifier, alert, popup);
+					c->message_identifier, alert, popup,
+					FALSE);
 		goto out;
 	}
 

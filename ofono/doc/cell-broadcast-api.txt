@@ -77,15 +77,16 @@ Signals		PropertyChanged(string name, variant value)
 
 		EmergencyBroadcast(string text, dict properties)
 
-			This signal is emitted whenever an ETWS cell broadcast
-			is received.  The string text contains contents of the
-			broadcast.  The dict is made up of the following
-			entries:
+			This signal is emitted whenever a supported ETWS cell
+			broadcast is received. Secondary Test notifications are
+			ignored. The string text contains the contents of a
+			Secondary Notification and is empty for a Primary
+			Notification. The dict is made up of the following entries:
 				EmergencyType - string value, possible values
 						include: "Earthquake",
 							"Tsunami",
 							"Earthquake+Tsunami",
-							"Other"
+							"Other", and "Test"
 				MessageIdentifier - uint16 message identifier
 				SerialNumber - uint16 complete serial number
 				GeographicalScope - byte geographical scope
@@ -104,6 +105,11 @@ Signals		PropertyChanged(string name, variant value)
 				Popup - boolean value hinting whether the UI
 					should popup a message box with the
 					emergency information.
+
+				Primary - boolean value indicating an ETWS
+					Primary Notification. Such notifications
+					have no text; clients should provide a
+					localized message for EmergencyType.
 
 Properties	boolean Powered [readwrite]
 

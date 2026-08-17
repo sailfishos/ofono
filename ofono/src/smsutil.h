@@ -425,6 +425,10 @@ struct cbs {
 
 struct cbs_decoded {
 	GSList *pages;
+	gboolean etws_primary;
+	guint8 etws_warning_type;
+	gboolean etws_emergency_alert;
+	gboolean etws_popup;
 	guint8 *warning_area;
 	guint16 warning_area_length;
 	char *geometries;

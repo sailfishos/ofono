@@ -1604,6 +1604,69 @@ static void test_cbs_pdu_legacy(void)
 	g_free(pdu);
 }
 
+static void test_cbs_pdu_etws_primary(void)
+{
+	struct cbs_decoded decoded;
+	const struct cbs *page;
+	unsigned char pdu[57] = { 0 };
+
+	pdu[0] = 0x40;
+	pdu[1] = 0x21;
+	pdu[2] = 0x11;
+	pdu[3] = 0x00;
+	pdu[4] = (2 << 1) | 1;
+	pdu[5] = 0x80;
+	memset(pdu + 6, 0xa5, 50);
+
+	g_assert(cbs_decode_pdu(pdu, 56, &decoded));
+	g_assert(decoded.etws_primary);
+	g_assert(decoded.etws_warning_type == 2);
+	g_assert(decoded.etws_emergency_alert);
+	g_assert(decoded.etws_popup);
+	g_assert(g_slist_length(decoded.pages) == 1);
+	page = decoded.pages->data;
+	g_assert(page->message_identifier == 0x1100);
+	g_assert(page->message_code == 2);
+	g_assert(page->update_number == 1);
+	g_assert(page->max_pages == 1);
+	g_assert(page->page == 1);
+	g_assert(page->udlen == 0);
+	cbs_decoded_clear(&decoded);
+
+	/* The security information is optional. */
+	g_assert(cbs_decode_pdu(pdu, 6, &decoded));
+	g_assert(decoded.etws_primary);
+	cbs_decoded_clear(&decoded);
+
+	/* A longer ETWS PDU uses the ordinary GSM CBS format. */
+	g_assert(cbs_decode_pdu(pdu, sizeof(pdu), &decoded));
+	g_assert(!decoded.etws_primary);
+	cbs_decoded_clear(&decoded);
+
+	/* Other short CBS messages must remain ordinary GSM messages. */
+	pdu[3] = 0x12;
+	g_assert(cbs_decode_pdu(pdu, 6, &decoded));
+	g_assert(!decoded.etws_primary);
+	cbs_decoded_clear(&decoded);
+
+	/* ETWS Primary Notification identifiers end at 0x1107. */
+	pdu[3] = 0x07;
+	pdu[4] = 4 << 1;
+	pdu[5] = 0;
+	g_assert(cbs_decode_pdu(pdu, 6, &decoded));
+	g_assert(decoded.etws_primary);
+	g_assert(decoded.etws_warning_type == 4);
+	g_assert(!decoded.etws_emergency_alert);
+	g_assert(!decoded.etws_popup);
+	cbs_decoded_clear(&decoded);
+
+	pdu[3] = 0x08;
+	pdu[5] = 0x11;
+	g_assert(cbs_decode_pdu(pdu, 6, &decoded));
+	g_assert(!decoded.etws_primary);
+	cbs_decoded_clear(&decoded);
+}
+
 static void test_cbs_pdu_umts(void)
 {
 	struct cbs_decoded decoded;
@@ -2251,6 +2314,8 @@ int main(int argc, char **argv)
 	g_test_add_func("/testsms/Test CBS Padding Character",
 			test_cbs_padding_character);
 	g_test_add_func("/testsms/Test CBS PDU Legacy", test_cbs_pdu_legacy);
+	g_test_add_func("/testsms/Test CBS PDU ETWS Primary",
+			test_cbs_pdu_etws_primary);
 	g_test_add_func("/testsms/Test CBS PDU UMTS", test_cbs_pdu_umts);
 	g_test_add_func("/testsms/Test CBS PDU Maximum Length",
 			test_cbs_pdu_max_length);

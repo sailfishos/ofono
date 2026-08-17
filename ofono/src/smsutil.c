@@ -4136,6 +4136,8 @@ static void cbs_decode_geo_fencing_trigger(const guint8 *data, guint16 len,
 gboolean cbs_decode_pdu(const unsigned char *pdu, int len,
 			struct cbs_decoded *out)
 {
+	const guint16 etws_id_mask = 0xfff8;
+	const guint16 etws_id = 0x1100;
 	struct cbs header;
 	guint16 message_identifier;
 	int page_count;
@@ -4146,6 +4148,30 @@ gboolean cbs_decode_pdu(const unsigned char *pdu, int len,
 
 	if (pdu == NULL || len < 6)
 		return FALSE;
+
+	message_identifier = (pdu[2] << 8) | pdu[3];
+
+	/* 3GPP TS 23.041 9.4.1.3: ETWS Primary Notification. */
+	if (len <= 56 && (message_identifier & etws_id_mask) == etws_id) {
+		struct cbs *page;
+
+		memset(&header, 0, sizeof(header));
+		header.gs = (enum cbs_geo_scope) ((pdu[0] >> 6) & 0x03);
+		header.message_code = ((pdu[0] & 0x3f) << 4) |
+				((pdu[1] >> 4) & 0x0f);
+		header.update_number = pdu[1] & 0x0f;
+		header.message_identifier = message_identifier;
+		header.max_pages = 1;
+		header.page = 1;
+
+		page = g_memdup(&header, sizeof(header));
+		out->pages = g_slist_append(NULL, page);
+		out->etws_primary = TRUE;
+		out->etws_warning_type = (pdu[4] & 0xfe) >> 1;
+		out->etws_emergency_alert = (pdu[4] & 0x01) != 0;
+		out->etws_popup = (pdu[5] & 0x80) != 0;
+		return TRUE;
+	}
 
 	if (len <= 88) {
 		struct cbs *page;

@@ -2534,7 +2534,7 @@ static void sms_assembly_backup_free(struct sms_assembly *assembly,
 	if (sms_address_to_hex_string(&node->addr, straddr) == FALSE)
 		return;
 
-	for (seq = 0; seq < node->max_fragments; seq++) {
+	for (seq = 1; seq <= node->max_fragments; seq++) {
 		int offset = seq / 32;
 		int bit = 1 << (seq % 32);
 

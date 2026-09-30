@@ -351,5 +351,14 @@ fi
 AC_DEFINE_UNQUOTED(CONFIGDIR, "${configdir}",
 			[Directory for the configuration files])
 
+
+AC_ARG_ENABLE(cbs-inject, AC_HELP_STRING([--enable-cbs-inject],
+			[enable explicitly activated local CBS test input]),
+			[enable_cbs_inject=${enableval}], [enable_cbs_inject=no])
+AM_CONDITIONAL(CBS_INJECT, test "${enable_cbs_inject}" = "yes")
+if (test "${enable_cbs_inject}" = "yes"); then
+	AC_DEFINE(ENABLE_CBS_INJECT, 1, [Enable local CBS test input])
+fi
+
 AC_OUTPUT(Makefile include/version.h src/ofono.service ofono.pc \
 		dundee/dundee.service)

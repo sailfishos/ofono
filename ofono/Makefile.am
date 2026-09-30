@@ -1320,3 +1320,14 @@ include/ofono/%.h: $(abs_top_srcdir)/include/%.h
 
 clean-local:
 	@$(RM) -rf include/ofono
+
+if CBS_INJECT
+src_ofonod_SOURCES += src/cbs-inject.c src/cbs-inject.h
+unit_tests += unit/test-cbs-inject
+unit_test_cbs_inject_SOURCES = unit/test-cbs-inject.c src/cbs-inject.c
+unit_test_cbs_inject_CFLAGS = $(AM_CFLAGS)
+unit_test_cbs_inject_LDADD = @GLIB_LIBS@
+endif
+
+EXTRA_DIST += tools/cbs-replay.py tools/cbs-integration.py \
+		unit/test-cbs-replay.py doc/cbs-inject.txt

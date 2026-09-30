@@ -6,6 +6,8 @@ License:    GPLv2
 URL:        https://github.com/sailfishos/ofono
 Source:     %{name}-%{version}.tar.bz2
 
+%bcond_with cbs_inject
+
 %define libglibutil_version 1.0.51
 
 # license macro requires rpm >= 4.11
@@ -80,6 +82,7 @@ Man pages for %{name}.
 autoreconf --force --install
 
 %configure --disable-static \
+    %{?with_cbs_inject:--enable-cbs-inject} \
     --enable-test \
     --enable-sailfish-bt \
     --enable-sailfish-debuglog \

@@ -1,0 +1,67 @@
+Local Cell Broadcast testing
+============================
+
+This developer-only harness injects messages into oFono's receive path on one
+phone. It tests decoding, multipart assembly and downstream alert handling;
+it does not transmit over the network or test modem reception/subscriptions.
+Normal builds leave the hook compiled out. Injection requires root.
+
+Setup
+-----
+
+1. Keep the original oFono RPM for restoration and back up alert history.
+   Build a matching test RPM with rpmbuild --with cbs_inject (or configure
+   with --enable-cbs-inject for a direct build), then install it.
+2. Create /run/ofono-cbs-inject owned by the running ofonod UID/GID with mode
+   0700. Check the actual process owner: oFono may drop privileges to radio.
+3. Create /run/systemd/system/ofono.service.d/90-cbs-injection-test.conf:
+
+       [Service]
+       Environment=OFONO_CBS_TEST_SOCKET_DIR=/run/ofono-cbs-inject
+
+4. Run systemctl daemon-reload and systemctl restart ofono. This temporarily
+   interrupts telephony. Check that the modem is online, CellBroadcast is
+   powered and /run/ofono-cbs-inject/<modem-name>.sock exists.
+
+The socket accepts only kernel-verified UID 0 senders. The directory must not
+be a symlink. Never remove an existing socket while oFono is running.
+
+Send a test alert
+-----------------
+
+Copy tools/cbs-replay.py to the phone. Enable test alerts in Settings and,
+for FI-Alert, use channel 4380 (primary) or 4393 (additional language):
+
+    python3 cbs-replay.py generate /tmp/cbs-case --channel 4380 --serial 0x6c10
+    python3 cbs-replay.py replay /tmp/cbs-case/page-01.pdu
+
+Run replay as root. Use --socket PATH if the modem socket is not ril_0.sock.
+Replay all generated pages for a multipart message. Use a fresh serial number
+for each new alert; replaying identical bytes tests duplicate suppression.
+Use --format umts to generate a UMTS message instead of GSM pages.
+
+The actual serving network selects the country policy; the hook does not
+change MCC/MNC or location. Generated text starts with TEST ONLY, but raw
+replay accepts arbitrary PDUs. Always specify the intended channel: the
+script's default, 4370, can trigger mandatory alerts with loud sound and
+vibration even in silent mode. DISPATCHED means input accepted, not that an
+alert was displayed; check the phone and its alert history.
+
+Restore
+-------
+
+Remove only the runtime override created above, run systemctl daemon-reload,
+and restore the original oFono RPM and restart oFono. Verify that the socket
+is gone and telephony works. Remove only your test alerts from history.
+
+Developer checks
+----------------
+
+Run python3 unit/test-cbs-replay.py and make check in the source directory.
+The enabled build adds socket credential and lifecycle tests.
+
+The optional tools/cbs-integration.py runner checks delivery, duplicates and
+screen wake-up, and can clean up its recorded alert through D-Bus. It requires
+a before.sqlite backup in the run directory's parent. Check its hard-coded
+user, D-Bus names and database path against the target OS before use. It uses
+channel 4370 and is intended for controlled developer testing.

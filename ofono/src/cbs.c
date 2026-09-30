@@ -38,6 +38,10 @@
 #include "simutil.h"
 #include "storage.h"
 
+#ifdef ENABLE_CBS_INJECT
+#include "cbs-inject.h"
+#endif
+
 #define SETTINGS_STORE "cbs"
 #define SETTINGS_GROUP "Settings"
 
@@ -52,6 +56,9 @@ enum etws_topic_type {
 };
 
 struct ofono_cbs {
+#ifdef ENABLE_CBS_INJECT
+	struct cbs_inject *inject;
+#endif
 	DBusMessage *pending;
 	struct cbs_assembly *assembly;
 	GSList *topics;
@@ -771,6 +778,11 @@ static void cbs_unregister(struct ofono_atom *atom)
 	struct ofono_modem *modem = __ofono_atom_get_modem(atom);
 	const char *path = __ofono_atom_get_path(atom);
 
+#ifdef ENABLE_CBS_INJECT
+	cbs_inject_free(cbs->inject);
+	cbs->inject = NULL;
+#endif
+
 	g_dbus_unregister_interface(conn, path, OFONO_CELL_BROADCAST_INTERFACE);
 	ofono_modem_remove_interface(modem, OFONO_CELL_BROADCAST_INTERFACE);
 
@@ -1265,6 +1277,14 @@ static void netreg_watch(struct ofono_atom *atom,
 	cbs_assembly_location_changed(cbs->assembly, TRUE, TRUE, TRUE);
 }
 
+#ifdef ENABLE_CBS_INJECT
+static void cbs_test_notify(const unsigned char *pdu, int len, void *data)
+{
+	ofono_info("Injecting local TEST CBS PDU (%d bytes)", len);
+	ofono_cbs_notify(data, pdu, len);
+}
+#endif
+
 void ofono_cbs_register(struct ofono_cbs *cbs)
 {
 	DBusConnection *conn = ofono_dbus_get_connection();
@@ -1297,6 +1317,12 @@ void ofono_cbs_register(struct ofono_cbs *cbs)
 					netreg_watch, cbs, NULL);
 
 	__ofono_atom_register(cbs->atom, cbs_unregister);
+#ifdef ENABLE_CBS_INJECT
+	cbs->inject = cbs_inject_new(g_getenv("OFONO_CBS_TEST_SOCKET_DIR"),
+					path, 0, cbs_test_notify, cbs);
+	if (cbs->inject)
+		ofono_info("Local TEST CBS input enabled for %s", path);
+#endif
 }
 
 void ofono_cbs_remove(struct ofono_cbs *cbs)

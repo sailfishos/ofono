@@ -601,6 +601,7 @@ endif
 
 if SAILFISH_PROVISION
 builtin_sources += plugins/sailfish_provision.c
+builtin_sources += plugins/apns-conf.h plugins/apns-conf.c
 PROVISION = 1
 else
 if PROVISION
@@ -1097,7 +1098,7 @@ unit_tests += unit/test-dbus-queue
 
 unit_test_provision_SOURCES = unit/test-provision.c \
 				plugins/provision.h plugins/mbpi.c \
-				plugins/sailfish_provision.c \
+				plugins/apns-conf.c plugins/sailfish_provision.c \
 				src/gprs-provision.c src/log.c
 unit_test_provision_CFLAGS = $(COVERAGE_OPT) $(AM_CFLAGS)
 unit_test_provision_LDADD = @GLIB_LIBS@ -ldl

@@ -193,6 +193,8 @@ static const char *gprs_context_default_name(enum ofono_gprs_context_type type)
 		return "WAP";
 	case OFONO_GPRS_CONTEXT_TYPE_IMS:
 		return "IMS";
+	case OFONO_GPRS_CONTEXT_TYPE_XCAP:
+		return "XCAP";
 	}
 
 	return NULL;
@@ -212,6 +214,8 @@ static const char *gprs_context_type_to_string(
 		return "wap";
 	case OFONO_GPRS_CONTEXT_TYPE_IMS:
 		return "ims";
+	case OFONO_GPRS_CONTEXT_TYPE_XCAP:
+		return "xcap";
 	}
 
 	return NULL;
@@ -231,6 +235,9 @@ static gboolean gprs_context_string_to_type(const char *str,
 		return TRUE;
 	} else if (g_str_equal(str, "ims")) {
 		*out = OFONO_GPRS_CONTEXT_TYPE_IMS;
+		return TRUE;
+	} else if (g_str_equal(str, "xcap")) {
+		*out = OFONO_GPRS_CONTEXT_TYPE_XCAP;
 		return TRUE;
 	}
 
@@ -2848,6 +2855,30 @@ static void provision_contexts(struct ofono_gprs *gprs, const char *mcc,
 	ofono_gprs_provision_free_settings(settings, count);
 }
 
+/*
+ * Adds the provisioned types which the stored contexts don't have yet,
+ * e.g. after the APN database has gained a new type. Existing contexts
+ * are left untouched.
+ */
+static void provision_missing_contexts(struct ofono_gprs *gprs,
+					struct ofono_sim *sim, const char *spn)
+{
+	DBusConnection *conn = ofono_dbus_get_connection();
+	GSList *last = g_slist_last(gprs->contexts);
+	GSList *l;
+
+	provision_contexts(gprs, ofono_sim_get_mcc(sim),
+					ofono_sim_get_mnc(sim), spn);
+
+	/* provision_context() appends the new contexts */
+	for (l = last ? last->next : gprs->contexts; l; l = l->next) {
+		struct pri_context *ctx = l->data;
+
+		send_context_added_signal(gprs, ctx, conn);
+		pri_settings_changed(ctx);
+	}
+}
+
 static gboolean all_contexts_configured(struct ofono_gprs *gprs)
 {
 	GSList *l;
@@ -3861,7 +3892,7 @@ remove:
 		storage_sync(imsi, SETTINGS_STORE, gprs->settings);
 }
 
-static void ofono_gprs_finish_register(struct ofono_gprs *gprs)
+static gboolean ofono_gprs_finish_register(struct ofono_gprs *gprs)
 {
 	DBusConnection *conn = ofono_dbus_get_connection();
 	struct ofono_modem *modem = __ofono_atom_get_modem(gprs->atom);
@@ -3877,7 +3908,7 @@ static void ofono_gprs_finish_register(struct ofono_gprs *gprs)
 				OFONO_CONNECTION_MANAGER_INTERFACE);
 
 		free_contexts(gprs);
-		return;
+		return FALSE;
 	}
 
 	ofono_modem_add_interface(modem,
@@ -3888,6 +3919,7 @@ static void ofono_gprs_finish_register(struct ofono_gprs *gprs)
 					netreg_watch, gprs, NULL);
 
 	__ofono_atom_register(gprs->atom, gprs_unregister);
+	return TRUE;
 }
 
 static void spn_read_cb(const char *spn, const char *dc, void *data)
@@ -3902,6 +3934,17 @@ static void spn_read_cb(const char *spn, const char *dc, void *data)
 	ofono_sim_remove_spn_watch(sim, &gprs->spn_watch);
 
 	ofono_gprs_finish_register(gprs);
+}
+
+static void spn_read_registered_cb(const char *spn, const char *dc,
+								void *data)
+{
+	struct ofono_gprs *gprs	= data;
+	struct ofono_modem *modem = __ofono_atom_get_modem(gprs->atom);
+	struct ofono_sim *sim = __ofono_atom_find(OFONO_ATOM_TYPE_SIM, modem);
+
+	provision_missing_contexts(gprs, sim, spn);
+	ofono_sim_remove_spn_watch(sim, &gprs->spn_watch);
 }
 
 struct ofono_modem *ofono_gprs_get_modem(struct ofono_gprs *gprs)
@@ -3919,8 +3962,13 @@ void ofono_gprs_register(struct ofono_gprs *gprs)
 
 	gprs_load_settings(gprs, ofono_sim_get_imsi(sim));
 
-	if (all_contexts_configured(gprs))
-		goto finish;
+	if (all_contexts_configured(gprs)) {
+		/* Types without a context driver don't hold the registration */
+		if (ofono_gprs_finish_register(gprs))
+			ofono_sim_add_spn_watch(sim, &gprs->spn_watch,
+					spn_read_registered_cb, gprs, NULL);
+		return;
+	}
 
 	ofono_sim_add_spn_watch(sim, &gprs->spn_watch, spn_read_cb, gprs, NULL);
 	return;

@@ -96,6 +96,7 @@ const char *mbpi_ap_type(enum ofono_gprs_context_type type)
 		_(OFONO_GPRS_CONTEXT_TYPE_MMS);
 		_(OFONO_GPRS_CONTEXT_TYPE_WAP);
 		_(OFONO_GPRS_CONTEXT_TYPE_IMS);
+		_(OFONO_GPRS_CONTEXT_TYPE_XCAP);
 	}
 
 	return "OFONO_GPRS_CONTEXT_TYPE_<UNKNOWN>";
@@ -680,8 +681,8 @@ static const GMarkupParser toplevel_cdma_parser = {
 	NULL,
 };
 
-static gboolean mbpi_parse(const GMarkupParser *parser, gpointer userdata,
-				GError **error)
+gboolean mbpi_parse_file(const char *path, const GMarkupParser *parser,
+				gpointer userdata, GError **error)
 {
 	struct stat st;
 	char *db;
@@ -689,11 +690,11 @@ static gboolean mbpi_parse(const GMarkupParser *parser, gpointer userdata,
 	GMarkupParseContext *context;
 	gboolean ret;
 
-	fd = open(mbpi_database, O_RDONLY);
+	fd = open(path, O_RDONLY);
 	if (fd < 0) {
 		g_set_error(error, G_FILE_ERROR,
 				g_file_error_from_errno(errno),
-				"open(%s) failed: %s", mbpi_database,
+				"open(%s) failed: %s", path,
 				g_strerror(errno));
 		return FALSE;
 	}
@@ -702,7 +703,7 @@ static gboolean mbpi_parse(const GMarkupParser *parser, gpointer userdata,
 		close(fd);
 		g_set_error(error, G_FILE_ERROR,
 				g_file_error_from_errno(errno),
-				"fstat(%s) failed: %s", mbpi_database,
+				"fstat(%s) failed: %s", path,
 				g_strerror(errno));
 		return FALSE;
 	}
@@ -712,7 +713,7 @@ static gboolean mbpi_parse(const GMarkupParser *parser, gpointer userdata,
 		close(fd);
 		g_set_error(error, G_FILE_ERROR,
 				g_file_error_from_errno(errno),
-				"mmap(%s) failed: %s", mbpi_database,
+				"mmap(%s) failed: %s", path,
 				g_strerror(errno));
 		return FALSE;
 	}
@@ -724,7 +725,7 @@ static gboolean mbpi_parse(const GMarkupParser *parser, gpointer userdata,
 	ret = g_markup_parse_context_parse(context, db, st.st_size, error);
 
 	if (ret == TRUE)
-		g_markup_parse_context_end_parse(context, error);
+		ret = g_markup_parse_context_end_parse(context, error);
 
 	munmap(db, st.st_size);
 	close(fd);
@@ -744,7 +745,8 @@ GSList *mbpi_lookup_apn(const char *mcc, const char *mnc,
 	gsm.match_mnc = mnc;
 	gsm.allow_duplicates = allow_duplicates;
 
-	if (mbpi_parse(&toplevel_gsm_parser, &gsm, error) == FALSE) {
+	if (mbpi_parse_file(mbpi_database, &toplevel_gsm_parser, &gsm,
+							error) == FALSE) {
 		for (l = gsm.apns; l; l = l->next)
 			mbpi_ap_free(l->data);
 
@@ -763,7 +765,8 @@ char *mbpi_lookup_cdma_provider_name(const char *sid, GError **error)
 	memset(&cdma, 0, sizeof(cdma));
 	cdma.match_sid = sid;
 
-	if (mbpi_parse(&toplevel_cdma_parser, &cdma, error) == FALSE) {
+	if (mbpi_parse_file(mbpi_database, &toplevel_cdma_parser, &cdma,
+							error) == FALSE) {
 		g_free(cdma.provider_name);
 		cdma.provider_name = NULL;
 	}

@@ -31,6 +31,9 @@ const char *mbpi_ap_type(enum ofono_gprs_context_type type);
 
 void mbpi_ap_free(struct ofono_gprs_provision_data *data);
 
+gboolean mbpi_parse_file(const char *path, const GMarkupParser *parser,
+				gpointer userdata, GError **error);
+
 GSList *mbpi_lookup_apn(const char *mcc, const char *mnc,
 			gboolean allow_duplicates, GError **error);
 

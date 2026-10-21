@@ -32,6 +32,7 @@
 
 #include "provision.h"
 #include "mbpi.h"
+#include "apns-conf.h"
 
 struct provision_ap_defaults {
 	enum ofono_gprs_context_type type;
@@ -109,7 +110,7 @@ static gint provision_compare_ap(gconstpointer a, gconstpointer b,
 	return 0;
 }
 
-/* Picks best ap, deletes the rest. Creates one if necessary */
+/* Picks best ap, deletes the rest. Creates one if defaults are given */
 static GSList *provision_pick_best_ap(GSList *list, const char *spn,
 	const enum ofono_gprs_proto default_proto,
 	const struct provision_ap_defaults *defaults)
@@ -122,7 +123,7 @@ static GSList *provision_pick_best_ap(GSList *list, const char *spn,
 		g_slist_free_full(g_slist_remove_link(list, best),
 							provision_free_ap);
 		return best;
-	} else {
+	} else if (defaults) {
 		/* or create one from the default data */
 		struct ofono_gprs_provision_data *ap =
 			g_new0(struct ofono_gprs_provision_data, 1);
@@ -133,12 +134,15 @@ static GSList *provision_pick_best_ap(GSList *list, const char *spn,
 		ap->apn = g_strdup(defaults->apn);
 		ap->auth_method = OFONO_GPRS_AUTH_METHOD_NONE;
 		return g_slist_append(NULL, ap);
+	} else {
+		return NULL;
 	}
 }
 
 /**
  * Returns the list containing INTERNET, MMS and IMS access points,
- * always all three of them and always in this order.
+ * always all three of them and always in this order, followed by
+ * the XCAP access point if there is one. XCAP has no default APN.
  */
 static GSList *provision_normalize_apn_list(GSList *apns, const char *spn)
 {
@@ -152,6 +156,7 @@ static GSList *provision_normalize_apn_list(GSList *apns, const char *spn)
 	GSList *internet_apns = NULL;
 	GSList *mms_apns = NULL;
 	GSList *ims_apns = NULL;
+	GSList *xcap_apns = NULL;
 
 	/* Build separate apn list for each type */
 	while (apns) {
@@ -169,6 +174,9 @@ static GSList *provision_normalize_apn_list(GSList *apns, const char *spn)
 		case OFONO_GPRS_CONTEXT_TYPE_IMS:
 			ims_apns = g_slist_concat(ims_apns, link);
 			break;
+		case OFONO_GPRS_CONTEXT_TYPE_XCAP:
+			xcap_apns = g_slist_concat(xcap_apns, link);
+			break;
 		default:
 			g_slist_free_full(link, provision_free_ap);
 			break;
@@ -182,10 +190,55 @@ static GSList *provision_normalize_apn_list(GSList *apns, const char *spn)
 			mbpi_default_mms_proto, &mms_defaults);
 	ims_apns = provision_pick_best_ap(ims_apns, spn,
 			mbpi_default_ims_proto, &ims_defaults);
+	xcap_apns = provision_pick_best_ap(xcap_apns, spn,
+			OFONO_GPRS_PROTO_IPV4V6, NULL);
 
 	/* And concatenate them in the right order */
 	return g_slist_concat(internet_apns, g_slist_concat(mms_apns,
-								ims_apns));
+				g_slist_concat(ims_apns, xcap_apns)));
+}
+
+/*
+ * Adds the APs from Android's database for the types which MBPI
+ * doesn't have. Upstream MBPI has no IMS or XCAP access points.
+ */
+static GSList *provision_add_apns_conf(GSList *apns, const char *mcc,
+							const char *mnc)
+{
+	GError *error = NULL;
+	GSList *android_apns = apns_conf_lookup_apn(mcc, mnc, &error);
+	guint mbpi_types = 0;
+	GSList *l;
+
+	if (error) {
+		if (g_error_matches(error, G_FILE_ERROR, G_FILE_ERROR_NOENT))
+			DBG("%s", error->message);
+		else
+			ofono_warn("%s", error->message);
+		g_error_free(error);
+	}
+
+	DBG("Found %d APs in %s", g_slist_length(android_apns),
+							apns_conf_database);
+
+	for (l = apns; l; l = l->next) {
+		const struct ofono_gprs_provision_data *ap = l->data;
+
+		mbpi_types |= 1 << ap->type;
+	}
+
+	while (android_apns) {
+		GSList *link = android_apns;
+		const struct ofono_gprs_provision_data *ap = link->data;
+
+		android_apns = g_slist_remove_link(android_apns, link);
+		if (mbpi_types & (1 << ap->type))
+			g_slist_free_full(link, provision_free_ap);
+		else
+			apns = g_slist_concat(apns, link);
+	}
+
+	return apns;
 }
 
 int provision_get_settings(const char *mcc, const char *mnc,
@@ -212,6 +265,7 @@ int provision_get_settings(const char *mcc, const char *mnc,
 	}
 
 	DBG("Found %d APs in MBPI", g_slist_length(apns));
+	apns = provision_add_apns_conf(apns, mcc, mnc);
 	apns = provision_normalize_apn_list(apns, spn);
 	ap_count = g_slist_length(apns);
 

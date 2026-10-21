@@ -38,6 +38,7 @@ enum ofono_gprs_context_type {
 	OFONO_GPRS_CONTEXT_TYPE_MMS,
 	OFONO_GPRS_CONTEXT_TYPE_WAP,
 	OFONO_GPRS_CONTEXT_TYPE_IMS,
+	OFONO_GPRS_CONTEXT_TYPE_XCAP /* Since mer/1.29+git16 */
 };
 
 struct ofono_gprs_primary_context {

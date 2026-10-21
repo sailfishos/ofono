@@ -23,6 +23,7 @@
 #define OFONO_API_SUBJECT_TO_CHANGE
 #include "ofono.h"
 #include "plugins/mbpi.h"
+#include "plugins/apns-conf.h"
 #include "plugins/provision.h"
 
 #include <string.h>
@@ -34,6 +35,7 @@ extern struct ofono_plugin_desc __ofono_builtin_provision;
 struct provision_test_case {
 	const char *name;
 	const char *xml;
+	const char *apns_conf;
 	const char *mcc;
 	const char *mnc;
 	const char *spn;
@@ -65,32 +67,53 @@ static GFile *test_write_tmp_file(const char* text, const char *suffix)
 	return file;
 }
 
-static void test_provision(gconstpointer test_data)
+/* Returns NULL file and the path to a non-existent file if text is NULL */
+static char *test_tmp_path(const char *text, GFile **file)
 {
-	const struct provision_test_case *test = test_data;
-	struct ofono_gprs_provision_data *settings = NULL;
-	int i, count = 0;
-	GFile *file;
 	char *path;
 
-	if (test->xml) {
-		file = test_write_tmp_file(test->xml, ".xml");
-		path = g_file_get_path(file);
+	if (text) {
+		*file = test_write_tmp_file(text, ".xml");
+		path = g_file_get_path(*file);
 	} else {
 		/*
 		 * Create and delete a temporary file to end up
 		 * with the path pointing to a non-existent file.
 		 */
 		GFileIOStream *io = NULL;
-		file = g_file_new_tmp("provisionXXXXXX.xml", &io, NULL);
-		path = g_file_get_path(file);
-		g_file_delete(file, NULL, NULL);
+		GFile *tmp = g_file_new_tmp("provisionXXXXXX.xml", &io, NULL);
+
+		path = g_file_get_path(tmp);
+		g_file_delete(tmp, NULL, NULL);
 		g_object_unref(io);
-		g_object_unref(file);
-		file = NULL;
+		g_object_unref(tmp);
+		*file = NULL;
 	}
 
+	return path;
+}
+
+static void test_delete_tmp_file(GFile *file)
+{
+	if (file) {
+		g_file_delete(file, NULL, NULL);
+		g_object_unref(file);
+	}
+}
+
+static void test_provision(gconstpointer test_data)
+{
+	const struct provision_test_case *test = test_data;
+	struct ofono_gprs_provision_data *settings = NULL;
+	int i, count = 0;
+	GFile *file;
+	GFile *apns_conf_file;
+	char *path = test_tmp_path(test->xml, &file);
+	char *apns_conf_path = test_tmp_path(test->apns_conf,
+							&apns_conf_file);
+
 	mbpi_database = path;
+	apns_conf_database = apns_conf_path;
 	g_assert(__ofono_builtin_provision.init() == 0);
 
 	if (test->settings) {
@@ -128,11 +151,10 @@ static void test_provision(gconstpointer test_data)
 
 	ofono_gprs_provision_free_settings(settings, count);
 	__ofono_builtin_provision.exit();
-	if (file) {
-		g_file_delete(file, NULL, NULL);
-		g_object_unref(file);
-	}
+	test_delete_tmp_file(file);
+	test_delete_tmp_file(apns_conf_file);
 	g_free(path);
+	g_free(apns_conf_path);
 }
 
 static void test_no_driver()
@@ -451,6 +473,92 @@ static const char telia_fi_internet_xml[] =
   </provider>\n\
 </country>\n\
 </serviceproviders>\n";
+
+static const char telia_fi_apns_conf[] =
+"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
+<!-- Android apns-conf.xml -->\n\
+<apns version=\"8\">\n\
+  <apn carrier=\"Telia Internet\" mcc=\"244\" mnc=\"91\" apn=\"internet\"\n\
+    type=\"default,supl\" protocol=\"IPV4V6\" />\n\
+  <apn carrier=\"Telia MMS\" mcc=\"244\" mnc=\"91\" apn=\"mms\"\n\
+    mmsc=\"http://mms/\" mmsproxy=\"195.156.25.33\" mmsport=\"8080\"\n\
+    user=\"user\" password=\"secret\" authtype=\"1\"\n\
+    type=\"mms\" protocol=\"IPV4V6\" />\n\
+  <apn carrier=\"Telia IMS\" mcc=\"244\" mnc=\"91\" apn=\"ims\"\n\
+    type=\"ims\" protocol=\"IPV4V6\" />\n\
+  <apn carrier=\"Other HOS\" mcc=\"244\" mnc=\"05\" apn=\"other.hos\"\n\
+    type=\"xcap\" />\n\
+  <apn carrier=\"MVNO HOS\" mcc=\"244\" mnc=\"91\" apn=\"mvno.hos\"\n\
+    type=\"xcap\" mvno_type=\"spn\" mvno_match_data=\"MVNO\" />\n\
+  <apn carrier=\"Disabled HOS\" mcc=\"244\" mnc=\"91\" apn=\"off.hos\"\n\
+    type=\"xcap\" carrier_enabled=\"false\" />\n\
+  <apn carrier=\"HOS\" mcc=\"244\" mnc=\"91\" apn=\"hos\"\n\
+    type=\"xcap\" protocol=\"IPV4V6\" />\n\
+</apns>\n";
+
+static const char telia_fi_internet_apns_conf[] =
+"<apns version=\"8\">\n\
+  <apn carrier=\"Telia Internet\" mcc=\"244\" mnc=\"91\" apn=\"internet\"\n\
+    type=\"default,supl\" protocol=\"IPV4V6\" />\n\
+  <apn carrier=\"Telia MMS\" mcc=\"244\" mnc=\"91\" apn=\"mms\"\n\
+    mmsc=\"http://mms/\" mmsproxy=\"195.156.25.33\" mmsport=\"8080\"\n\
+    user=\"user\" password=\"secret\" authtype=\"1\"\n\
+    type=\"mms\" protocol=\"IPV4V6\" />\n\
+</apns>\n";
+
+/* MBPI provides Internet and MMS, Android's database IMS and XCAP */
+static const struct ofono_gprs_provision_data telia_fi_apns_conf_fallback[] = {
+	{
+		.type = OFONO_GPRS_CONTEXT_TYPE_INTERNET,
+		.proto = OFONO_GPRS_PROTO_IPV4V6,
+		.provider_name = telia_fi_provider_name,
+		.name = telia_fi_name_internet,
+		.apn = telia_fi_apn_internet,
+		.auth_method = OFONO_GPRS_AUTH_METHOD_NONE
+	}, {
+		.type = OFONO_GPRS_CONTEXT_TYPE_MMS,
+		.proto = OFONO_GPRS_PROTO_IP,
+		.provider_name = telia_fi_provider_name,
+		.name = telia_fi_name_mms,
+		.apn = telia_fi_apn_mms,
+		.auth_method = OFONO_GPRS_AUTH_METHOD_NONE,
+		.message_proxy = telia_fi_message_proxy,
+		.message_center = telia_fi_message_center
+	}, {
+		.type = OFONO_GPRS_CONTEXT_TYPE_IMS,
+		.proto = OFONO_GPRS_PROTO_IPV4V6,
+		.name = "Telia IMS",
+		.apn = "ims",
+		.auth_method = OFONO_GPRS_AUTH_METHOD_NONE
+	}, {
+		.type = OFONO_GPRS_CONTEXT_TYPE_XCAP,
+		.proto = OFONO_GPRS_PROTO_IPV4V6,
+		.name = "HOS",
+		.apn = "hos",
+		.auth_method = OFONO_GPRS_AUTH_METHOD_NONE
+	}
+};
+
+static const struct ofono_gprs_provision_data telia_fi_apns_conf_only[] = {
+	{
+		.type = OFONO_GPRS_CONTEXT_TYPE_INTERNET,
+		.proto = OFONO_GPRS_PROTO_IPV4V6,
+		.name = telia_fi_name_internet,
+		.apn = telia_fi_apn_internet,
+		.auth_method = OFONO_GPRS_AUTH_METHOD_NONE
+	}, {
+		.type = OFONO_GPRS_CONTEXT_TYPE_MMS,
+		.proto = OFONO_GPRS_PROTO_IP,
+		.name = telia_fi_name_mms,
+		.apn = telia_fi_apn_mms,
+		.username = "user",
+		.password = "secret",
+		.auth_method = OFONO_GPRS_AUTH_METHOD_PAP,
+		.message_proxy = telia_fi_message_proxy,
+		.message_center = telia_fi_message_center
+	},
+	{ DEFAULT_IMS_SETTINGS }
+};
 
 static const struct provision_test_case test_cases[] = {
 	{
@@ -1365,6 +1473,51 @@ static const struct provision_test_case test_cases[] = {
 </se",
 		.mcc = "123",
 		.mnc = "34",
+		.settings = default_settings,
+		.count = G_N_ELEMENTS(default_settings)
+	},{
+		.name = TEST_SUITE "apns_conf_fallback",
+		.xml =
+"<serviceproviders format=\"2.0\">\n\
+<country code=\"fi\">\n\
+  <provider>\n\
+    <name>Telia FI</name>\n\
+    <gsm>\n\
+      <network-id mcc=\"244\" mnc=\"91\"/>\n\
+      <apn value=\"internet\">\n\
+        <usage type=\"internet\"/>\n\
+        <name>Telia Internet</name>\n\
+      </apn>\n\
+      <apn value=\"mms\">\n\
+        <usage type=\"mms\"/>\n\
+        <name>Telia MMS</name>\n\
+        <mmsc>http://mms/</mmsc>\n\
+        <mmsproxy>195.156.25.33:8080</mmsproxy>\n\
+      </apn>\n\
+    </gsm>\n\
+  </provider>\n\
+</country>\n\
+</serviceproviders>\n",
+		.apns_conf = telia_fi_apns_conf,
+		.mcc = "244",
+		.mnc = "91",
+		.settings = telia_fi_apns_conf_fallback,
+		.count = G_N_ELEMENTS(telia_fi_apns_conf_fallback)
+	},{
+		.name = TEST_SUITE "apns_conf_only",
+		.apns_conf = telia_fi_internet_apns_conf,
+		.mcc = "244",
+		.mnc = "91",
+		.settings = telia_fi_apns_conf_only,
+		.count = G_N_ELEMENTS(telia_fi_apns_conf_only)
+	},{
+		.name = TEST_SUITE "apns_conf_invalid_xml",
+		.apns_conf =
+"<apns version=\"8\">\n\
+  <apn carrier=\"HOS\" mcc=\"244\" mnc=\"91\" apn=\"hos\" type=\"xcap\" />\n\
+</ap",
+		.mcc = "244",
+		.mnc = "91",
 		.settings = default_settings,
 		.count = G_N_ELEMENTS(default_settings)
 	}

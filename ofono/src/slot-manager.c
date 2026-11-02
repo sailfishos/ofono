@@ -35,7 +35,8 @@
 enum slot_sim_auto_select {
 	SLOT_SIM_AUTO_SELECT_OFF,
 	SLOT_SIM_AUTO_SELECT_ON,
-	SLOT_SIM_AUTO_SELECT_ONCE
+	SLOT_SIM_AUTO_SELECT_ONCE,
+	SLOT_SIM_AUTO_SELECT_SINGLE
 };
 
 enum watch_events {
@@ -654,6 +655,41 @@ static OfonoSlotObject *slot_manager_find_slot_imsi(OfonoSlotManagerObject *mgr,
 	return data.slot;
 }
 
+struct slot_manager_single_sim_data {
+	OfonoSlotObject *slot;
+	gboolean ambiguous;
+};
+
+static gboolean slot_manager_single_sim_cb(OfonoSlotObject *slot,
+	void *user_data)
+{
+	struct slot_manager_single_sim_data *data = user_data;
+
+	if (!slot->pub.enabled ||
+		slot->pub.sim_presence == OFONO_SLOT_SIM_ABSENT) {
+		return SM_LOOP_CONTINUE;
+	} else if (slot->pub.sim_presence == OFONO_SLOT_SIM_PRESENT &&
+							!data->slot) {
+		data->slot = slot;
+		return SM_LOOP_CONTINUE;
+	} else {
+		/* A second SIM, or one that may yet turn out to be */
+		data->ambiguous = TRUE;
+		return SM_LOOP_DONE;
+	}
+}
+
+/* The only SIM in the enabled slots, NULL unless there is exactly one */
+static OfonoSlotObject *slot_manager_single_sim(OfonoSlotManagerObject *mgr)
+{
+	struct slot_manager_single_sim_data data;
+
+	memset(&data, 0, sizeof(data));
+	slot_manager_foreach_slot(mgr, slot_manager_single_sim_cb, &data);
+	return (data.slot && !data.ambiguous && data.slot->watch->imsi) ?
+		data.slot : NULL;
+}
+
 static gboolean slot_manager_all_sims_are_initialized_cb(OfonoSlotObject *slot,
 	void *result)
 {
@@ -746,17 +782,22 @@ static enum slot_manager_dbus_signal slot_manager_update_modem_paths
 		slot = NULL;
 	}
 
-	/* Check if we need to auto-select data SIM (always or once) */
+	/* Check if we need to auto-select data SIM (always, single or once) */
 	if (!slot && (mgr->auto_data_sim == SLOT_SIM_AUTO_SELECT_ON ||
+			mgr->auto_data_sim == SLOT_SIM_AUTO_SELECT_SINGLE ||
 			(mgr->auto_data_sim == SLOT_SIM_AUTO_SELECT_ONCE &&
 				!mgr->auto_data_sim_done))) {
 		/*
 		 * To actually make a selection we need all present SIMs
 		 * to be initialized. Otherwise we may end up endlessly
-		 * switching data SIMs back and forth.
+		 * switching data SIMs back and forth. With more than one
+		 * SIM, "single" leaves the choice to the user.
 		 */
 		if (slot_manager_all_sims_are_initialized(mgr)) {
-			slot = slot_manager_find_slot_imsi(mgr, NULL);
+			slot = (mgr->auto_data_sim ==
+					SLOT_SIM_AUTO_SELECT_SINGLE) ?
+				slot_manager_single_sim(mgr) :
+				slot_manager_find_slot_imsi(mgr, NULL);
 			if (slot && slot->watch->imsi && slot->watch->online &&
 				mgr->auto_data_sim ==
 					SLOT_SIM_AUTO_SELECT_ONCE) {
@@ -1415,10 +1456,12 @@ static void ofono_slot_manager_object_init(OfonoSlotManagerObject *mgr)
 				"off", SLOT_SIM_AUTO_SELECT_OFF,
 				"once", SLOT_SIM_AUTO_SELECT_ONCE,
 				"always", SLOT_SIM_AUTO_SELECT_ON,
-				"on", SLOT_SIM_AUTO_SELECT_ON, NULL)) {
+				"on", SLOT_SIM_AUTO_SELECT_ON,
+				"single", SLOT_SIM_AUTO_SELECT_SINGLE, NULL)) {
 			DBG("Automatic data SIM selection: %s",
 				ival == SLOT_SIM_AUTO_SELECT_ONCE ? "once":
 				ival == SLOT_SIM_AUTO_SELECT_ON ? "on":
+				ival == SLOT_SIM_AUTO_SELECT_SINGLE ? "single":
 				"off");
 			mgr->auto_data_sim = ival;
 		}

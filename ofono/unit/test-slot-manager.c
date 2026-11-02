@@ -1473,16 +1473,9 @@ static guint test_auto_data_sim_start(TestDriverData *dd)
 	return 0;
 }
 
-static void test_auto_data_sim(gconstpointer option)
+static void test_auto_data_sim_run(const char *option,
+	const struct ofono_slot_driver *driver)
 {
-	static const struct ofono_slot_driver test_auto_data_sim_driver = {
-		.name = "auto_data_sim",
-		.api_version = OFONO_SLOT_API_VERSION,
-		.init = test_driver_init,
-		.start = test_auto_data_sim_start,
-		.cancel = test_driver_cancel_unreachable,
-		.cleanup = test_driver_cleanup
-	};
 	char *cfg_dir = g_dir_make_tmp(TEST_CONFIG_DIR_TEMPLATE, NULL);
 	char *cfg_file = g_build_filename(cfg_dir, "main.conf", NULL);
 	GKeyFile* cfg = g_key_file_new();
@@ -1493,8 +1486,7 @@ static void test_auto_data_sim(gconstpointer option)
 
 	__ofono_set_config_dir(cfg_dir);
 	test_common_init();
-	test_driver_reg = ofono_slot_driver_register
-		(&test_auto_data_sim_driver);
+	test_driver_reg = ofono_slot_driver_register(driver);
 	g_assert(test_driver_reg);
 
 	g_main_loop_run(test_loop);
@@ -1508,6 +1500,151 @@ static void test_auto_data_sim(gconstpointer option)
 	remove(cfg_dir);
 	g_free(cfg_file);
 	g_free(cfg_dir);
+}
+
+static void test_auto_data_sim(gconstpointer option)
+{
+	static const struct ofono_slot_driver test_auto_data_sim_driver = {
+		.name = "auto_data_sim",
+		.api_version = OFONO_SLOT_API_VERSION,
+		.init = test_driver_init,
+		.start = test_auto_data_sim_start,
+		.cancel = test_driver_cancel_unreachable,
+		.cleanup = test_driver_cleanup
+	};
+
+	test_auto_data_sim_run(option, &test_auto_data_sim_driver);
+}
+
+/* ==== auto_data_sim_single ==== */
+
+static struct ofono_slot *test_auto_data_sim_single_slot;
+
+static gboolean test_auto_data_sim_single_done(gpointer unused)
+{
+	struct ofono_slot_manager *m = fake_slot_manager_dbus.m;
+	struct ofono_slot *s2 = test_auto_data_sim_single_slot;
+	struct ofono_watch *w = ofono_watch_new(TEST_PATH);
+	struct ofono_watch *w2 = ofono_watch_new(TEST_PATH_1);
+	struct ofono_modem modem;
+	struct ofono_sim sim;
+	struct ofono_sim sim2;
+	char **slots = gutil_strv_add(NULL, TEST_PATH);
+
+	memset(&modem, 0, sizeof(modem));
+	memset(&sim, 0, sizeof(sim));
+	sim.mcc = TEST_MCC;
+	sim.mnc = TEST_MNC;
+	sim.state = OFONO_SIM_STATE_READY;
+	sim2 = sim;
+
+	/* The first SIM is ready while the second slot is still unknown */
+	w->modem = &modem;
+	w->online = TRUE;
+	fake_watch_signal_queue(w, FAKE_WATCH_SIGNAL_MODEM_CHANGED);
+	fake_watch_signal_queue(w, FAKE_WATCH_SIGNAL_ONLINE_CHANGED);
+	fake_watch_set_ofono_sim(w, &sim);
+	fake_watch_set_ofono_iccid(w, TEST_ICCID);
+	fake_watch_set_ofono_imsi(w, TEST_IMSI);
+	fake_watch_emit_queued_signals(w);
+	g_assert(!m->default_data_path);
+	g_assert_cmpint(m->slots[0]->data_role, == ,OFONO_SLOT_DATA_NONE);
+
+	/* The second slot is empty, so the only SIM is used for data */
+	ofono_slot_set_sim_presence(s2, OFONO_SLOT_SIM_ABSENT);
+	g_assert_cmpstr(m->default_data_path, == ,TEST_PATH);
+	g_assert_cmpint(m->slots[0]->data_role, == ,OFONO_SLOT_DATA_INTERNET);
+	g_assert(!m->default_data_imsi);
+
+	/* With a second SIM the user has to choose */
+	ofono_slot_set_sim_presence(s2, OFONO_SLOT_SIM_PRESENT);
+	g_assert(!m->default_data_path);
+	w2->modem = &modem;
+	w2->online = TRUE;
+	fake_watch_signal_queue(w2, FAKE_WATCH_SIGNAL_MODEM_CHANGED);
+	fake_watch_signal_queue(w2, FAKE_WATCH_SIGNAL_ONLINE_CHANGED);
+	fake_watch_set_ofono_sim(w2, &sim2);
+	fake_watch_set_ofono_iccid(w2, TEST_ICCID_1);
+	fake_watch_set_ofono_imsi(w2, TEST_IMSI_1);
+	fake_watch_emit_queued_signals(w2);
+	g_assert(!m->default_data_path);
+	g_assert(!m->default_data_imsi);
+	g_assert_cmpint(m->slots[0]->data_role, == ,OFONO_SLOT_DATA_NONE);
+	g_assert_cmpint(m->slots[1]->data_role, == ,OFONO_SLOT_DATA_NONE);
+
+	/* A disabled slot does not count, even if it still has an IMSI */
+	fake_slot_manager_dbus.cb.set_enabled_slots(m, slots);
+	g_assert(!m->slots[1]->enabled);
+	g_assert_cmpstr(m->default_data_path, == ,TEST_PATH);
+	fake_slot_manager_dbus.cb.set_enabled_slots(m, NULL);
+	g_strfreev(slots);
+	slots = gutil_strv_add(NULL, TEST_PATH);
+	slots = gutil_strv_add(slots, TEST_PATH_1);
+	fake_slot_manager_dbus.cb.set_enabled_slots(m, slots);
+	g_assert(m->slots[1]->enabled);
+	g_assert(!m->default_data_path);
+
+	/* An explicit choice is honoured */
+	fake_slot_manager_dbus.cb.set_default_data_imsi(m, TEST_IMSI_1);
+	g_assert_cmpstr(m->default_data_path, == ,TEST_PATH_1);
+
+	/* Without the chosen SIM the other one is used, the choice is kept */
+	fake_watch_set_ofono_iccid(w2, NULL);
+	fake_watch_set_ofono_imsi(w2, NULL);
+	ofono_slot_set_sim_presence(s2, OFONO_SLOT_SIM_ABSENT);
+	fake_watch_emit_queued_signals(w2);
+	g_assert_cmpstr(m->default_data_path, == ,TEST_PATH);
+	g_assert_cmpstr(m->default_data_imsi, == ,TEST_IMSI_1);
+
+	/* And the chosen SIM takes over again when it comes back */
+	ofono_slot_set_sim_presence(s2, OFONO_SLOT_SIM_PRESENT);
+	fake_watch_set_ofono_iccid(w2, TEST_ICCID_1);
+	fake_watch_set_ofono_imsi(w2, TEST_IMSI_1);
+	fake_watch_emit_queued_signals(w2);
+	g_assert_cmpstr(m->default_data_path, == ,TEST_PATH_1);
+
+	g_strfreev(slots);
+	ofono_watch_unref(w);
+	ofono_watch_unref(w2);
+	g_main_loop_quit(test_loop);
+	return G_SOURCE_REMOVE;
+}
+
+static guint test_auto_data_sim_single_start(TestDriverData *dd)
+{
+	struct ofono_slot_manager *m = fake_slot_manager_dbus.m;
+	struct ofono_slot *s = ofono_slot_add(dd->manager, TEST_PATH,
+			OFONO_RADIO_ACCESS_MODE_GSM, TEST_IMEI, TEST_IMEISV,
+			OFONO_SLOT_SIM_PRESENT, OFONO_SLOT_NO_FLAGS);
+	struct ofono_slot *s2 = ofono_slot_add(dd->manager, TEST_PATH_1,
+			OFONO_RADIO_ACCESS_MODE_GSM, TEST_IMEI_1, TEST_IMEISV,
+			OFONO_SLOT_SIM_UNKNOWN, OFONO_SLOT_NO_FLAGS);
+
+	g_assert(s);
+	g_assert(s2);
+	ofono_slot_driver_started(test_driver_reg);
+	ofono_slot_unref(s);
+	ofono_slot_unref(s2);
+	g_assert(!m->ready);
+
+	/* The manager keeps the slot alive */
+	test_auto_data_sim_single_slot = s2;
+	g_idle_add(test_auto_data_sim_single_done, NULL);
+	return 0;
+}
+
+static void test_auto_data_sim_single(void)
+{
+	static const struct ofono_slot_driver test_auto_data_sim_single_driver = {
+		.name = "auto_data_sim_single",
+		.api_version = OFONO_SLOT_API_VERSION,
+		.init = test_driver_init,
+		.start = test_auto_data_sim_single_start,
+		.cancel = test_driver_cancel_unreachable,
+		.cleanup = test_driver_cleanup
+	};
+
+	test_auto_data_sim_run("single", &test_auto_data_sim_single_driver);
 }
 
 /* ==== multisim ==== */
@@ -1926,6 +2063,8 @@ int main(int argc, char *argv[])
 						test_auto_data_sim);
 	g_test_add_data_func(TEST_("auto_data_sim_once"), "once",
 						test_auto_data_sim);
+	g_test_add_func(TEST_("auto_data_sim_single"),
+						test_auto_data_sim_single);
 	g_test_add_func(TEST_("multisim"), test_multisim);
 	g_test_add_func(TEST_("config_storage"), test_config_storage);
 	g_test_add_func(TEST_("storage"), test_storage);

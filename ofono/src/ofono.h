@@ -551,6 +551,23 @@ enum ofono_emulator_slc_condition {
 
 void __ofono_emulator_set_indicator_forced(struct ofono_emulator *em,
 						const char *name, int value);
+
+typedef void (*ofono_emulator_battery_attach_cb)(struct ofono_emulator *em,
+						const char *device);
+typedef void (*ofono_emulator_battery_detach_cb)(struct ofono_emulator *em);
+typedef ofono_bool_t (*ofono_emulator_hf_indicator_cb)(
+						struct ofono_emulator *em,
+						int indicator, int value);
+
+void __ofono_emulator_register_battery_extension(
+			ofono_emulator_battery_attach_cb attach,
+			ofono_emulator_battery_detach_cb detach);
+void __ofono_emulator_unregister_battery_extension(void);
+void __ofono_emulator_set_device_path(struct ofono_emulator *em,
+						const char *device);
+void __ofono_emulator_set_hf_battery_indicator(
+						struct ofono_emulator *em,
+						ofono_emulator_hf_indicator_cb cb);
 void __ofono_emulator_slc_condition(struct ofono_emulator *em,
 					enum ofono_emulator_slc_condition cond);
 

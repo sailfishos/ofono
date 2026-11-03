@@ -258,6 +258,7 @@ static DBusMessage *profile_new_connection(DBusConnection *conn,
 		ofono_emulator_add_modem(em, i->data);
 
 	emulator = em;
+	__ofono_emulator_set_device_path(em, device);
 	ofono_emulator_register(em, fd);
 
 	watch = g_new(struct watch_fd, 1);

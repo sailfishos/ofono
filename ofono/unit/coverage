@@ -14,6 +14,9 @@ TESTS="\
  test-stkutil \
  test-sms \
  test-cdmasms \
+ test-hfp-battery \
+ test-hfp-battery-provider \
+ test-hfp-battery-emulator \
  test-sms-root \
  test-caif \
  test-cell-info \

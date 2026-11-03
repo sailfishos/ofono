@@ -577,6 +577,10 @@ builtin_sources += plugins/bluez5.c plugins/bluez5.h
 builtin_modules += hfp_ag_bluez5
 builtin_sources += plugins/hfp_ag_bluez5.c plugins/bluez5.h
 
+builtin_modules += hfp_battery
+builtin_sources += plugins/hfp_battery.c plugins/hfp-battery-util.c \
+			plugins/hfp-battery-util.h
+
 if SAILFISH_BT
 builtin_modules += sfos_bt
 builtin_sources += plugins/sailfish_bt.c
@@ -918,6 +922,31 @@ unit_objects =
 unit_tests = unit/test-common unit/test-util unit/test-idmap \
 				unit/test-simutil unit/test-stkutil \
 				unit/test-sms unit/test-cdmasms
+
+unit_test_hfp_battery_SOURCES = unit/test-hfp-battery.c \
+			plugins/hfp-battery-util.c gatchat/gatserver.c \
+			gatchat/gatresult.c gatchat/gatio.c gatchat/gatutil.c \
+			gatchat/ringbuffer.c
+unit_test_hfp_battery_CFLAGS = $(AM_CFLAGS) $(COVERAGE_OPT)
+unit_test_hfp_battery_LDADD = @GLIB_LIBS@
+unit_objects += $(unit_test_hfp_battery_OBJECTS)
+unit_tests += unit/test-hfp-battery
+
+unit_test_hfp_battery_provider_SOURCES = unit/test-hfp-battery-provider.c \
+			plugins/hfp-battery-util.c
+unit_test_hfp_battery_provider_CFLAGS = $(AM_CFLAGS) $(COVERAGE_OPT)
+unit_test_hfp_battery_provider_LDADD = @DBUS_LIBS@ @GLIB_LIBS@
+unit_objects += $(unit_test_hfp_battery_provider_OBJECTS)
+unit_tests += unit/test-hfp-battery-provider
+
+unit_test_hfp_battery_emulator_SOURCES = unit/test-hfp-battery-emulator.c \
+			gatchat/gatresult.c
+unit_test_hfp_battery_emulator_CFLAGS = $(AM_CFLAGS) $(COVERAGE_OPT) \
+			-ffunction-sections -fdata-sections
+unit_test_hfp_battery_emulator_LDFLAGS = -Wl,--gc-sections
+unit_test_hfp_battery_emulator_LDADD = @GLIB_LIBS@
+unit_objects += $(unit_test_hfp_battery_emulator_OBJECTS)
+unit_tests += unit/test-hfp-battery-emulator
 
 unit_test_conf_SOURCES = unit/test-conf.c src/conf.c src/log.c
 unit_test_conf_CFLAGS = $(AM_CFLAGS) $(COVERAGE_OPT)

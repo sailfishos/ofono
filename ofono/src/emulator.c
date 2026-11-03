@@ -56,6 +56,7 @@ struct ofono_emulator {
 	gboolean emulator_registered;
 	enum ofono_emulator_type type;
 	GAtServer *server;
+	char *device_path;
 	GAtPPP *ppp;
 	int l_features;
 	int r_features;
@@ -77,7 +78,54 @@ struct ofono_emulator {
 	bool clip : 1;
 	bool ccwa : 1;
 	bool ddr_active : 1;
+	bool battery_attached : 1;
+	bool battery_negotiated : 1;
+	ofono_emulator_hf_indicator_cb battery_indicator;
 };
+
+static ofono_emulator_battery_attach_cb battery_attach;
+static ofono_emulator_battery_detach_cb battery_detach;
+
+static void emulator_battery_detach(struct ofono_emulator *em)
+{
+	if (!em->battery_attached)
+		return;
+	if (battery_detach)
+		battery_detach(em);
+	em->battery_attached = FALSE;
+	em->battery_indicator = NULL;
+	em->battery_negotiated = FALSE;
+}
+
+void __ofono_emulator_register_battery_extension(
+			ofono_emulator_battery_attach_cb attach,
+			ofono_emulator_battery_detach_cb detach)
+{
+	battery_attach = attach;
+	battery_detach = detach;
+}
+
+void __ofono_emulator_unregister_battery_extension(void)
+{
+	battery_attach = NULL;
+	battery_detach = NULL;
+}
+
+void __ofono_emulator_set_device_path(struct ofono_emulator *em,
+						const char *device)
+{
+	g_free(em->device_path);
+	em->device_path = g_strdup(device);
+}
+
+void __ofono_emulator_set_hf_battery_indicator(
+						struct ofono_emulator *em,
+						ofono_emulator_hf_indicator_cb cb)
+{
+	em->battery_indicator = cb;
+	if (cb == NULL)
+		em->battery_negotiated = FALSE;
+}
 
 struct indicator {
 	char *name;
@@ -861,63 +909,79 @@ fail:
 	}
 }
 
+/* Parse HF indicator fields without the signed overflow and implicit comma
+ * consumption of the legacy AT number iterator. */
+static gboolean hf_indicator_number(const char **cursor, unsigned int *value,
+						unsigned int maximum)
+{
+	const char *p = *cursor;
+	unsigned int n = 0;
+
+	if (!p || *p < '0' || *p > '9')
+		return FALSE;
+	while (*p >= '0' && *p <= '9') {
+		unsigned int digit = *p++ - '0';
+
+		if (n > maximum / 10 ||
+				(n == maximum / 10 && digit > maximum % 10))
+			return FALSE;
+		n = n * 10 + digit;
+	}
+	*cursor = p;
+	*value = n;
+	return TRUE;
+}
+
 static void bind_cb(GAtServer *server, GAtServerRequestType type,
 			GAtResult *result, gpointer user_data)
 {
 	struct ofono_emulator *em = user_data;
-	char buf[128];
 
 	switch (type) {
 	case G_AT_SERVER_REQUEST_TYPE_QUERY:
 		g_at_server_send_info(em->server, "+BIND: 1,1", TRUE);
+		if (em->battery_indicator)
+			g_at_server_send_info(em->server, "+BIND: 2,1", TRUE);
 		g_at_server_send_final(server, G_AT_SERVER_RESULT_OK);
-
 		__ofono_emulator_slc_condition(em,
 					OFONO_EMULATOR_SLC_CONDITION_BIND);
 		break;
-
 	case G_AT_SERVER_REQUEST_TYPE_SUPPORT:
-		sprintf(buf, "+BIND: (1)");
-		g_at_server_send_info(em->server, buf, TRUE);
+		g_at_server_send_info(em->server, em->battery_indicator ?
+				"+BIND: (1,2)" : "+BIND: (1)", TRUE);
 		g_at_server_send_final(server, G_AT_SERVER_RESULT_OK);
 		break;
-
 	case G_AT_SERVER_REQUEST_TYPE_SET:
 	{
 		GAtResultIter iter;
-		int hf_indicator;
-		int num_hf_indicators = 0;
+		const char *raw;
+		unsigned int indicator, count = 0, supported[20], i;
+		gboolean battery = FALSE;
 
 		g_at_result_iter_init(&iter, result);
-		g_at_result_iter_next(&iter, "");
-
-		/* check validity of the request */
-		while (num_hf_indicators < 20 &&
-				g_at_result_iter_next_number(&iter,
-							&hf_indicator)) {
-			if (hf_indicator > 0xffff)
-				goto fail;
-
-			num_hf_indicators += 1;
-		}
-
-		/* Check that we have nothing extra in the stream */
-		if (g_at_result_iter_skip_next(&iter) == TRUE)
+		if (!g_at_result_iter_next(&iter, ""))
 			goto fail;
+		raw = g_at_result_iter_raw_line(&iter);
+		do {
+			if (++count > 20 ||
+					!hf_indicator_number(&raw, &indicator, 0xffff))
+				goto fail;
+			supported[count - 1] = indicator;
+			if (indicator == 2)
+				battery = TRUE;
+			if (!*raw)
+				break;
+			if (*raw++ != ',')
+				goto fail;
+		} while (TRUE);
 
-		/* request is valid, update the indicator activation status */
-		g_at_result_iter_init(&iter, result);
-		g_at_result_iter_next(&iter, "");
-
-		while (g_at_result_iter_next_number(&iter, &hf_indicator))
-			ofono_info("HF supports indicator: 0x%04x",
-					hf_indicator);
-
+		em->battery_negotiated = battery && em->battery_indicator;
+		for (i = 0; i < count; i++)
+			if (supported[i] != 2 || !em->battery_indicator)
+				ofono_info("HF supports indicator: 0x%04x", supported[i]);
 		g_at_server_send_final(server, G_AT_SERVER_RESULT_OK);
-
 		break;
 	}
-
 	default:
 fail:
 		g_at_server_send_final(server, G_AT_SERVER_RESULT_ERROR);
@@ -936,11 +1000,26 @@ static void biev_cb(GAtServer *server, GAtServerRequestType type,
 		GAtResultIter iter;
 		int hf_indicator;
 		int val;
+		const char *raw;
+		unsigned int indicator, battery;
 
 		g_at_result_iter_init(&iter, result);
-		g_at_result_iter_next(&iter, "");
+		if (!g_at_result_iter_next(&iter, ""))
+			goto fail;
+		raw = g_at_result_iter_raw_line(&iter);
+		if (!hf_indicator_number(&raw, &indicator, 0xffff))
+			goto fail;
+		if (indicator == 2) {
+			if (!em->battery_indicator || !em->battery_negotiated ||
+					!em->slc || *raw++ != ',' ||
+					!hf_indicator_number(&raw, &battery, 100) ||
+					*raw || !em->battery_indicator(em, 2, battery))
+				goto fail;
+			g_at_server_send_final(server, G_AT_SERVER_RESULT_OK);
+			break;
+		}
 
-		if (g_at_result_iter_next_number(&iter, &hf_indicator) == FALSE)
+		if (!g_at_result_iter_next_number(&iter, &hf_indicator))
 			goto fail;
 
 		if (hf_indicator != HFP_HF_INDICATOR_ENHANCED_SAFETY)
@@ -1181,6 +1260,7 @@ static void emulator_unregister(struct ofono_atom *atom)
 	}
 
 	em->emulator_registered = FALSE;
+	emulator_battery_detach(em);
 
 	DBG("%p no more atoms registered", em);
 
@@ -1243,6 +1323,10 @@ void ofono_emulator_register(struct ofono_emulator *em, int fd)
 	em->server = g_at_server_new(io);
 	if (em->server == NULL)
 		return;
+	if (battery_attach && em->device_path) {
+		battery_attach(em, em->device_path);
+		em->battery_attached = TRUE;
+	}
 
 	g_io_channel_unref(io);
 
@@ -1308,6 +1392,8 @@ static void emulator_free(struct ofono_emulator *em)
 	g_assert(!em->atoms);
 
 	DBG("free emulator %p", em);
+	emulator_battery_detach(em);
+	g_free(em->device_path);
 	if (em->registered_atoms)
 		g_list_free(em->registered_atoms);
 	g_free(em);

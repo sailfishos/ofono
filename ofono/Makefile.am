@@ -949,6 +949,13 @@ unit_test_hfp_battery_emulator_LDADD = @GLIB_LIBS@
 unit_objects += $(unit_test_hfp_battery_emulator_OBJECTS)
 unit_tests += unit/test-hfp-battery-emulator
 
+unit_test_carrier_name_SOURCES = unit/test-carrier-name.c src/carrier-name.c \
+			src/conf.c src/log.c
+unit_test_carrier_name_CFLAGS = $(AM_CFLAGS) $(COVERAGE_OPT)
+unit_test_carrier_name_LDADD = @GLIB_LIBS@ -ldl
+unit_objects += $(unit_test_carrier_name_OBJECTS)
+unit_tests += unit/test-carrier-name
+
 unit_test_conf_SOURCES = unit/test-conf.c src/conf.c src/log.c
 unit_test_conf_CFLAGS = $(AM_CFLAGS) $(COVERAGE_OPT)
 unit_test_conf_LDADD = @GLIB_LIBS@ -ldl

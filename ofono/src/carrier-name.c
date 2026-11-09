@@ -27,6 +27,8 @@
 
 #define CARRIER_NAME_FILE	"carrier_name.conf"
 #define CARRIER_ICCID_RANGES_KEY	"IccidRanges"
+#define CARRIER_SPN_KEY		"ServiceProviderName"
+#define CARRIER_NETWORK_KEY	"NetworkName"
 
 struct carrier_range {
 	char *first;
@@ -148,8 +150,9 @@ static void carrier_load(void)
 
 		carrier = g_new0(struct carrier_override, 1);
 		carrier->spn = carrier_read_name(conf, *group,
-						"ServiceProviderName");
-		carrier->network = carrier_read_name(conf, *group, "NetworkName");
+						CARRIER_SPN_KEY);
+		carrier->network = carrier_read_name(conf, *group,
+						CARRIER_NETWORK_KEY);
 
 		for (value = ranges; *value; value++) {
 			struct carrier_range *range = carrier_range_parse(

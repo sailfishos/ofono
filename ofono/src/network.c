@@ -347,7 +347,7 @@ static void set_network_operator_techs(struct network_operator_data *opd,
 	g_strfreev(technologies);
 }
 
-static char *get_operator_display_name(struct ofono_netreg *netreg)
+static const char *get_operator_display_name(struct ofono_netreg *netreg)
 {
 	struct network_operator_data *opd = netreg->current_operator;
 	const char *plmn;
@@ -356,6 +356,7 @@ static char *get_operator_display_name(struct ofono_netreg *netreg)
 	static char mccmnc[OFONO_MAX_MCC_LENGTH + OFONO_MAX_MNC_LENGTH + 1];
 	int len = sizeof(name);
 	int home_or_spdi;
+	const char *alias;
 
 	/*
 	 * The name displayed to user depends on whether we're in a home
@@ -367,6 +368,12 @@ static char *get_operator_display_name(struct ofono_netreg *netreg)
 		g_strlcpy(name, "", len);
 		return name;
 	}
+
+	alias = __ofono_carrier_name(__ofono_sim_get_iccid(netreg->sim), TRUE);
+	if (alias &&
+			(netreg->status == NETWORK_REGISTRATION_STATUS_REGISTERED ||
+			 netreg->status == NETWORK_REGISTRATION_STATUS_ROAMING))
+		return alias;
 
 	plmn = opd->name;
 

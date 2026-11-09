@@ -220,6 +220,10 @@ static void sim_info_update_public_spn(SimInfo *self)
 	const char *spn = priv->sim_spn ? priv->sim_spn :
 		priv->cached_spn ? priv->cached_spn :
 		priv->default_spn;
+	const char *name = __ofono_carrier_name(priv->iccid, FALSE);
+
+	if (name)
+		spn = name;
 
 	if (g_strcmp0(priv->public_spn, spn)) {
 		g_free(priv->public_spn);
@@ -432,6 +436,8 @@ static void sim_info_set_iccid(SimInfo *self, const char *iccid)
 		sim_info_signal_queue(self, SIGNAL_ICCID_CHANGED);
 		if (iccid) {
 			sim_info_load_cache(self);
+			if (__ofono_carrier_name(priv->iccid, FALSE))
+				sim_info_update_public_spn(self);
 		} else {
 			DBG_(self, "no more iccid");
 			if (priv->imsi) {

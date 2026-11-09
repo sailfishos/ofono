@@ -191,6 +191,7 @@ struct ofono_sim_driver_data {
 };
 
 static void sim_own_numbers_update(struct ofono_sim *sim);
+static const char *sim_display_spn(struct ofono_sim *sim);
 
 static GSList *g_drivers = NULL;
 
@@ -488,6 +489,7 @@ static DBusMessage *sim_get_properties(DBusConnection *conn,
 	char **service_numbers;
 	char **locked_pins;
 	const char *pin_name;
+	const char *spn = sim_display_spn(sim);
 	void **pin_retries_dict;
 	unsigned char *dbus_retries;
 	dbus_bool_t present = sim->state != OFONO_SIM_STATE_NOT_PRESENT;
@@ -517,9 +519,9 @@ static DBusMessage *sim_get_properties(DBusConnection *conn,
 		ofono_dbus_dict_append(&dict, "SubscriberIdentity",
 					DBUS_TYPE_STRING, &sim->imsi);
 
-	if (sim->spn)
+	if (spn)
 		ofono_dbus_dict_append(&dict, "ServiceProviderName",
-					DBUS_TYPE_STRING, &sim->spn);
+					DBUS_TYPE_STRING, &spn);
 
 	if (sim->impi)
 		ofono_dbus_dict_append(&dict, "ImsPrivateIdentity",
@@ -2736,6 +2738,18 @@ const char *ofono_sim_get_spn(struct ofono_sim *sim)
 	return sim->spn;
 }
 
+const char *__ofono_sim_get_iccid(struct ofono_sim *sim)
+{
+	return sim ? sim->iccid : NULL;
+}
+
+static const char *sim_display_spn(struct ofono_sim *sim)
+{
+	const char *name = __ofono_carrier_name(sim->iccid, FALSE);
+
+	return name ? name : sim->spn;
+}
+
 enum ofono_sim_phase ofono_sim_get_phase(struct ofono_sim *sim)
 {
 	if (sim == NULL)
@@ -3176,6 +3190,7 @@ static void sim_spn_set(struct ofono_sim *sim, const void *data, int length,
 {
 	DBusConnection *conn = ofono_dbus_get_connection();
 	const char *path = __ofono_atom_get_path(sim->atom);
+	const char *spn;
 
 	g_free(sim->spn);
 	sim->spn = NULL;
@@ -3218,11 +3233,12 @@ static void sim_spn_set(struct ofono_sim *sim, const void *data, int length,
 		sim->spn_dc = g_memdup(dc, 1);
 
 notify:
-	if (sim->spn)
+	spn = sim_display_spn(sim);
+	if (spn)
 		ofono_dbus_signal_property_changed(conn, path,
 						OFONO_SIM_MANAGER_INTERFACE,
 						"ServiceProviderName",
-						DBUS_TYPE_STRING, &sim->spn);
+						DBUS_TYPE_STRING, &spn);
 
 	spn_watches_notify(sim);
 }

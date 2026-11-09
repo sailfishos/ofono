@@ -1,0 +1,36 @@
+Carrier display name overrides
+******************************
+
+/etc/ofono/carrier-name.conf (relative to ofono_config_dir()) can override
+provider and registered-network display names for selected SIM ICCID ranges:
+
+[Carrier]
+Name=Example Mobile
+
+[Ranges]
+Range=8900000000000000000:8900000000000000099
+
+Name supplies both display names. Optional ServiceProviderName and NetworkName
+keys in [Carrier] independently replace that default. An explicitly empty key
+disables that override. Missing names and invalid UTF-8 names do not override.
+No override applies without a valid range matching the SIM's ICCID.
+
+Range is a comma-separated list of inclusive first:last decimal ICCID ranges.
+Each pair must have equal-length endpoints in ascending order. Whitespace
+around endpoints is ignored. Matching uses decimal strings without integer
+conversion, so 20-digit ICCIDs are supported. ICCIDs of different lengths do not
+match. Invalid ranges are ignored. Multiple SIMs are matched independently.
+
+The normal configuration merger also reads carrier-name.d/*.conf. Values use
+GLib key-file escaping, without quotation marks. Configuration is loaded once;
+restart oFono after changes, including removing the file to disable overrides.
+
+ServiceProviderName affects org.ofono.SimManager.ServiceProviderName and the
+org.nemomobile.ofono.SimInfo service provider name, including change signals.
+NetworkName replaces the entire org.ofono.NetworkRegistration.Name when an
+operator is available and the modem is registered, including while roaming.
+
+Actual SIM data, provisioning, cached provider names, MCC/MNC, roaming state and
+network selection are unchanged. Scanned NetworkOperator names, custom SIM card
+labels and internal raw-name getters are not overridden. Remove UI-specific
+name overrides such as Lipstick's fake_operator to use the oFono values.

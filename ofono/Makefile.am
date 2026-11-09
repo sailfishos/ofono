@@ -735,7 +735,7 @@ src_ofonod_SOURCES = $(builtin_sources) $(gatchat_sources) src/ofono.ver \
 			src/cell-info.c src/cell-info-dbus.c \
 			src/cell-info-control.c \
 			src/sim-info.c src/sim-info-dbus.c \
-			src/conf.c src/mtu-limit.c
+			src/conf.c src/mtu-limit.c src/carrier-name.c
 
 src_ofonod_LDADD = gdbus/libgdbus-internal.la $(builtin_libadd) \
 			@GLIB_LIBS@ @DBUS_LIBS@ -ldl
@@ -764,7 +764,8 @@ AM_CPPFLAGS = -I$(builddir)/include -I$(builddir)/src -I$(srcdir)/src \
 			-I$(srcdir)/gdbus -I$(srcdir)/gisi -I$(srcdir)/gatchat \
 			-I$(srcdir)/btio -I$(srcdir)/gril
 
-doc_files = doc/overview.txt doc/ofono-paper.txt doc/release-faq.txt \
+doc_files = doc/carrier-name.txt doc/overview.txt doc/ofono-paper.txt \
+			doc/release-faq.txt \
 		doc/manager-api.txt doc/modem-api.txt doc/network-api.txt \
 			doc/voicecallmanager-api.txt doc/voicecall-api.txt \
 			doc/call-forwarding-api.txt doc/call-settings-api.txt \
@@ -980,7 +981,8 @@ unit_objects += $(unit_test_cell_info_dbus_OBJECTS)
 unit_tests += unit/test-cell-info-dbus
 
 unit_test_sim_info_SOURCES = unit/test-sim-info.c unit/fake_watch.c \
-			src/sim-info.c src/storage.c src/watchlist.c src/log.c
+			src/sim-info.c src/storage.c src/watchlist.c src/log.c \
+			src/carrier-name.c src/conf.c
 unit_test_sim_info_CFLAGS = $(COVERAGE_OPT) $(AM_CFLAGS) \
 			-DSTORAGEDIR='"/tmp/ofono"'
 unit_test_sim_info_LDADD = @GLIB_LIBS@ -ldl
@@ -991,7 +993,8 @@ unit_test_sim_info_dbus_SOURCES = unit/test-sim-info-dbus.c \
 			unit/test-dbus.c unit/fake_watch.c \
 			src/sim-info.c src/sim-info-dbus.c \
 			gdbus/object.c src/dbus-access.c \
-			src/dbus.c src/storage.c src/watchlist.c src/log.c
+			src/dbus.c src/storage.c src/watchlist.c src/log.c \
+			src/carrier-name.c src/conf.c
 unit_test_sim_info_dbus_CFLAGS = $(COVERAGE_OPT) $(AM_CFLAGS) \
 			@DBUS_GLIB_CFLAGS@ -DSTORAGEDIR='"/tmp/ofono"'
 unit_test_sim_info_dbus_LDADD = @DBUS_GLIB_LIBS@ @GLIB_LIBS@ -ldl
@@ -1001,7 +1004,8 @@ unit_tests += unit/test-sim-info-dbus
 unit_test_slot_manager_SOURCES = unit/test-slot-manager.c unit/fake_watch.c \
 			unit/fake_cell_info.c src/slot-manager.c \
 			src/cell-info.c src/cell-info-control.c \
-			src/sim-info.c src/storage.c src/log.c
+			src/sim-info.c src/storage.c src/log.c \
+			src/carrier-name.c src/conf.c
 unit_test_slot_manager_CFLAGS = $(AM_CFLAGS) $(COVERAGE_OPT) \
 			-DSTORAGEDIR='"/tmp/ofono"'
 unit_test_slot_manager_LDADD = @GLIB_LIBS@ -ldl

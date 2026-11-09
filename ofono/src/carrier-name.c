@@ -26,7 +26,7 @@
 #include "ofono.h"
 
 #define CARRIER_NAME_FILE	"carrier_name.conf"
-#define CARRIER_RANGE_KEY	"Ranges"
+#define CARRIER_ICCID_RANGES_KEY	"IccidRanges"
 
 struct carrier_range {
 	char *first;
@@ -139,7 +139,7 @@ static void carrier_load(void)
 
 	for (group = groups; group && *group; group++) {
 		char **ranges = g_key_file_get_string_list(conf, *group,
-						CARRIER_RANGE_KEY, NULL, NULL);
+						CARRIER_ICCID_RANGES_KEY, NULL, NULL);
 		char **value;
 		struct carrier_override *carrier;
 

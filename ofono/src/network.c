@@ -347,7 +347,7 @@ static void set_network_operator_techs(struct network_operator_data *opd,
 	g_strfreev(technologies);
 }
 
-static char *get_operator_display_name(struct ofono_netreg *netreg)
+static const char *get_operator_display_name(struct ofono_netreg *netreg)
 {
 	struct network_operator_data *opd = netreg->current_operator;
 	const char *plmn;
@@ -366,6 +366,14 @@ static char *get_operator_display_name(struct ofono_netreg *netreg)
 	if (opd == NULL) {
 		g_strlcpy(name, "", len);
 		return name;
+	}
+
+	if (netreg->status == NETWORK_REGISTRATION_STATUS_REGISTERED) {
+		const char *alias = __ofono_carrier_name(
+				__ofono_sim_get_iccid(netreg->sim), TRUE);
+
+		if (alias)
+			return alias;
 	}
 
 	plmn = opd->name;

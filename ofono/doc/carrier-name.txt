@@ -1,0 +1,43 @@
+Carrier display name overrides
+******************************
+
+/etc/ofono/carrier_name.conf (relative to ofono_config_dir()) can override
+provider and registered-network display names for selected SIM ICCID ranges:
+
+[Example Mobile]
+IccidRanges=8900000000000000000:8900000000000000099
+
+[Another Carrier]
+IccidRanges=89440000000000000000:89440000000000000099
+
+Each section names a carrier and supplies both display names. Optional
+ServiceProviderName and NetworkName keys in that section independently replace
+that default. An explicitly empty key disables that override. Invalid UTF-8
+names do not override. No override applies without a valid matching range.
+
+IccidRanges is a comma-separated list of inclusive first:last decimal ICCID ranges.
+Each pair must have equal-length endpoints in ascending order. Whitespace
+around endpoints is ignored. Matching uses decimal strings without integer
+conversion, so 20-digit ICCIDs are supported. ICCIDs of different lengths do not
+match. Invalid ranges are ignored. Multiple SIMs are matched independently.
+If sections overlap, the first matching section in the merged configuration wins.
+
+The normal configuration merger also reads carrier_name.d/*.conf, in filename
+order. Different sections add carriers; later values in the same section replace
+earlier ones. The merger's IccidRanges+ syntax can append ranges to an existing
+carrier. A drop-in can supply a carrier without any main configuration file.
+Values use GLib key-file escaping, without quotation marks. Files must be
+readable by the daemon (radio on Sailfish OS), normally mode 0644. Configuration
+is loaded once; restart oFono after changes or removal of overrides.
+
+ServiceProviderName affects org.ofono.SimManager.ServiceProviderName and the
+org.nemomobile.ofono.SimInfo service provider name, including change signals.
+NetworkName replaces the entire org.ofono.NetworkRegistration.Name when an
+operator is available and the modem is registered on its home network. While
+roaming, normal network-name composition is preserved; the SIM provider name
+can still be overridden through the SIM interfaces.
+
+Actual SIM data, provisioning, cached provider names, MCC/MNC, roaming state and
+network selection are unchanged. Scanned NetworkOperator names, custom SIM card
+labels and internal raw-name getters are not overridden. Remove UI-specific
+name overrides such as Lipstick's fake_operator to use the oFono values.

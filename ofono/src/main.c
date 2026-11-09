@@ -315,6 +315,8 @@ int main(int argc, char **argv)
 
 	__ofono_modemwatch_cleanup();
 
+	__ofono_carrier_name_cleanup();
+
 	__ofono_dbus_cleanup();
 	dbus_connection_unref(conn);
 

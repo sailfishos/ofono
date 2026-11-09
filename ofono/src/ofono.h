@@ -695,3 +695,7 @@ void __ofono_slot_manager_cleanup(void);
 #include <ofono/storage.h>
 
 void __ofono_set_config_dir(const char *dir);
+
+const char *__ofono_sim_get_iccid(struct ofono_sim *sim);
+const char *__ofono_carrier_name(const char *iccid, gboolean network);
+void __ofono_carrier_name_cleanup(void);

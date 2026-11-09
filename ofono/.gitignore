@@ -43,6 +43,7 @@ unit/test-sms-root
 unit/test-simutil
 unit/test-mux
 unit/test-caif
+unit/test-carrier-name
 unit/test-cell-info
 unit/test-cell-info-control
 unit/test-cell-info-dbus
@@ -53,6 +54,9 @@ unit/test-dbus-access
 unit/test-dbus-clients
 unit/test-dbus-queue
 unit/test-gprs-filter
+unit/test-hfp-battery
+unit/test-hfp-battery-emulator
+unit/test-hfp-battery-provider
 unit/test-ril_config
 unit/test-ril_ecclist
 unit/test-ril_util

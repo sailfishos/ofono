@@ -18,6 +18,7 @@ TESTS="\
  test-hfp-battery-provider \
  test-hfp-battery-emulator \
  test-sms-root \
+ test-carrier-name \
  test-caif \
  test-cell-info \
  test-cell-info-control \

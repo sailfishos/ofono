@@ -25,20 +25,21 @@
 
 #include "ofono.h"
 
-#define CARRIER_NAME_FILE	"carrier-name.conf"
-#define CARRIER_GROUP		"Carrier"
-#define CARRIER_NAME_KEY	"Name"
-#define CARRIER_RANGES_GROUP	"Ranges"
-#define CARRIER_RANGE_KEY	"Range"
+#define CARRIER_NAME_FILE	"carrier_name.conf"
+#define CARRIER_RANGE_KEY	"Ranges"
 
 struct carrier_range {
 	char *first;
 	char *last;
 };
 
-static char *carrier_spn;
-static char *carrier_network;
-static GSList *carrier_ranges;
+struct carrier_override {
+	char *spn;
+	char *network;
+	GSList *ranges;
+};
+
+static GSList *carrier_overrides;
 static gboolean carrier_loaded;
 
 static gboolean carrier_digits(const char *s)
@@ -108,12 +109,11 @@ static gboolean carrier_in_range(const char *iccid,
 					strcmp(iccid, range->last) <= 0;
 }
 
-static char *carrier_read_name(GKeyFile *conf, const char *key)
+static char *carrier_read_name(GKeyFile *conf, const char *group,
+						const char *key)
 {
-	char *name = ofono_conf_get_string(conf, CARRIER_GROUP, key);
-
-	if (name == NULL)
-		name = ofono_conf_get_string(conf, CARRIER_GROUP, CARRIER_NAME_KEY);
+	char *name = g_key_file_has_key(conf, group, key, NULL) ?
+		g_key_file_get_string(conf, group, key, NULL) : g_strdup(group);
 
 	if (name && (!name[0] || !g_utf8_validate(name, -1, NULL))) {
 		g_free(name);
@@ -127,38 +127,43 @@ static void carrier_load(void)
 	GKeyFile *conf = g_key_file_new();
 	char *path = g_build_filename(ofono_config_dir(),
 						CARRIER_NAME_FILE, NULL);
-	char **ranges = NULL;
-	char **value;
+	char **groups;
+	char **group;
 
 	carrier_loaded = TRUE;
 
-	/*
-	 * Same list separator the merger uses. A missing file is left
-	 * empty, which means no renaming.
-	 */
+	/* Use the same list separator as the configuration merger. */
 	g_key_file_set_list_separator(conf, ',');
 	ofono_conf_merge_files(conf, path);
+	groups = g_key_file_get_groups(conf, NULL);
 
-	carrier_spn = carrier_read_name(conf, "ServiceProviderName");
-	carrier_network = carrier_read_name(conf, "NetworkName");
-	if (!carrier_spn && !carrier_network)
-		goto done;
+	for (group = groups; group && *group; group++) {
+		char **ranges = g_key_file_get_string_list(conf, *group,
+						CARRIER_RANGE_KEY, NULL, NULL);
+		char **value;
+		struct carrier_override *carrier;
 
-	ranges = ofono_conf_get_strings(conf, CARRIER_RANGES_GROUP,
-					CARRIER_RANGE_KEY, ',');
-	if (ranges == NULL)
-		ofono_warn("No carrier ranges in %s", path);
+		if (ranges == NULL)
+			continue;
 
-	for (value = ranges; value != NULL && *value != NULL; value++) {
-		struct carrier_range *range = carrier_range_parse(
-						CARRIER_RANGE_KEY, *value);
+		carrier = g_new0(struct carrier_override, 1);
+		carrier->spn = carrier_read_name(conf, *group,
+						"ServiceProviderName");
+		carrier->network = carrier_read_name(conf, *group, "NetworkName");
 
-		if (range != NULL)
-			carrier_ranges = g_slist_append(carrier_ranges, range);
+		for (value = ranges; *value; value++) {
+			struct carrier_range *range = carrier_range_parse(
+						*group, g_strstrip(*value));
+
+			if (range != NULL)
+				carrier->ranges = g_slist_append(carrier->ranges,
+								range);
+		}
+		carrier_overrides = g_slist_append(carrier_overrides, carrier);
+		g_strfreev(ranges);
 	}
 
-done:
-	g_strfreev(ranges);
+	g_strfreev(groups);
 	g_key_file_free(conf);
 	g_free(path);
 }
@@ -166,18 +171,21 @@ done:
 const char *__ofono_carrier_name(const char *iccid, gboolean network)
 {
 	GSList *l;
-	const char *name;
 
 	if (!carrier_loaded)
 		carrier_load();
 
-	name = network ? carrier_network : carrier_spn;
-	if (name == NULL || !carrier_digits(iccid))
+	if (!carrier_digits(iccid))
 		return NULL;
 
-	for (l = carrier_ranges; l != NULL; l = l->next) {
-		if (carrier_in_range(iccid, l->data))
-			return name;
+	for (l = carrier_overrides; l; l = l->next) {
+		struct carrier_override *carrier = l->data;
+		GSList *r;
+
+		for (r = carrier->ranges; r; r = r->next) {
+			if (carrier_in_range(iccid, r->data))
+				return network ? carrier->network : carrier->spn;
+		}
 	}
 
 	return NULL;
@@ -187,18 +195,23 @@ void __ofono_carrier_name_cleanup(void)
 {
 	GSList *l;
 
-	for (l = carrier_ranges; l; l = l->next) {
-		struct carrier_range *range = l->data;
+	for (l = carrier_overrides; l; l = l->next) {
+		struct carrier_override *carrier = l->data;
+		GSList *r;
 
-		g_free(range->first);
-		g_free(range->last);
-		g_free(range);
+		for (r = carrier->ranges; r; r = r->next) {
+			struct carrier_range *range = r->data;
+
+			g_free(range->first);
+			g_free(range->last);
+			g_free(range);
+		}
+		g_slist_free(carrier->ranges);
+		g_free(carrier->spn);
+		g_free(carrier->network);
+		g_free(carrier);
 	}
-	g_slist_free(carrier_ranges);
-	carrier_ranges = NULL;
-	g_free(carrier_spn);
-	carrier_spn = NULL;
-	g_free(carrier_network);
-	carrier_network = NULL;
+	g_slist_free(carrier_overrides);
+	carrier_overrides = NULL;
 	carrier_loaded = FALSE;
 }

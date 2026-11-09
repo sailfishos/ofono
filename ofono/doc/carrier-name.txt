@@ -1,29 +1,34 @@
 Carrier display name overrides
 ******************************
 
-/etc/ofono/carrier-name.conf (relative to ofono_config_dir()) can override
+/etc/ofono/carrier_name.conf (relative to ofono_config_dir()) can override
 provider and registered-network display names for selected SIM ICCID ranges:
 
-[Carrier]
-Name=Example Mobile
+[Example Mobile]
+Ranges=8900000000000000000:8900000000000000099
 
-[Ranges]
-Range=8900000000000000000:8900000000000000099
+[Another Carrier]
+Ranges=89440000000000000000:89440000000000000099
 
-Name supplies both display names. Optional ServiceProviderName and NetworkName
-keys in [Carrier] independently replace that default. An explicitly empty key
-disables that override. Missing names and invalid UTF-8 names do not override.
-No override applies without a valid range matching the SIM's ICCID.
+Each section names a carrier and supplies both display names. Optional
+ServiceProviderName and NetworkName keys in that section independently replace
+that default. An explicitly empty key disables that override. Invalid UTF-8
+names do not override. No override applies without a valid matching range.
 
-Range is a comma-separated list of inclusive first:last decimal ICCID ranges.
+Ranges is a comma-separated list of inclusive first:last decimal ICCID ranges.
 Each pair must have equal-length endpoints in ascending order. Whitespace
 around endpoints is ignored. Matching uses decimal strings without integer
 conversion, so 20-digit ICCIDs are supported. ICCIDs of different lengths do not
 match. Invalid ranges are ignored. Multiple SIMs are matched independently.
+If sections overlap, the first matching section in the merged configuration wins.
 
-The normal configuration merger also reads carrier-name.d/*.conf. Values use
-GLib key-file escaping, without quotation marks. Configuration is loaded once;
-restart oFono after changes, including removing the file to disable overrides.
+The normal configuration merger also reads carrier_name.d/*.conf, in filename
+order. Different sections add carriers; later values in the same section replace
+earlier ones. The merger's Ranges+ syntax can append ranges to an existing
+carrier. A drop-in can supply a carrier without any main configuration file.
+Values use GLib key-file escaping, without quotation marks. Files must be
+readable by the daemon (radio on Sailfish OS), normally mode 0644. Configuration
+is loaded once; restart oFono after changes or removal of overrides.
 
 ServiceProviderName affects org.ofono.SimManager.ServiceProviderName and the
 org.nemomobile.ofono.SimInfo service provider name, including change signals.

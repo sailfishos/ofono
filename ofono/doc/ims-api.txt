@@ -72,3 +72,15 @@ Properties	boolean Registered [readonly]
 			The Register() method, if implemented, will fail
 			with [service].Error.NotAllowed if the value of
 			this property is "disabled".
+
+		boolean WifiCalling [readwrite, optional]
+
+			Whether IMS may register through Wi-Fi (Wi-Fi
+			calling). Present only if the modem supports it.
+			Defaults to true; the modem decides between Wi-Fi
+			and the cellular network.
+
+		boolean WifiCallingActive [readonly, optional]
+
+			True while IMS is registered through Wi-Fi. Present
+			together with WifiCalling.

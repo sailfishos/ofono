@@ -75,6 +75,8 @@ struct ofono_ims {
 	char *imsi;
 	GKeyFile *settings;
 	guint recheck_timeout_id;
+	gboolean wifi_calling;
+	gboolean wifi_calling_supported;
 };
 
 /* Calls to the driver are serialized */
@@ -97,10 +99,13 @@ struct ims_call {
 #define CALLBACK(f) ((ims_cb_t)(f))
 
 #define REGISTRATION_PROP "Registration"
+#define WIFI_CALLING_PROP "WifiCalling"
+#define WIFI_CALLING_ACTIVE_PROP "WifiCallingActive"
 
 #define SETTINGS_STORE "ims"
 #define SETTINGS_GROUP "Settings"
 #define REGISTRATION_KEY REGISTRATION_PROP
+#define WIFI_CALLING_KEY WIFI_CALLING_PROP
 
 static GSList *g_drivers = NULL;
 
@@ -205,6 +210,14 @@ static void ims_call_submit_unregister(struct ims_call *call)
 	struct ofono_ims *ims = call->ims;
 
 	ims->driver->ims_unregister(ims, ims_call_register_cb, call);
+}
+
+static void ims_call_submit_set_wifi_calling(struct ims_call *call)
+{
+	struct ofono_ims *ims = call->ims;
+
+	ims->driver->set_wifi_calling(ims, ims->wifi_calling,
+					ims_call_register_cb, call);
 }
 
 static void ims_call_registration_status(struct ofono_ims *ims,
@@ -342,12 +355,51 @@ static gboolean ims_imsi_check(struct ofono_ims *ims)
 	return FALSE;
 }
 
+static dbus_bool_t ims_over_wlan(int reg_info, int ext_info)
+{
+	return reg_info && ext_info != -1 &&
+				(ext_info & OFONO_IMS_OVER_WLAN);
+}
+
+static void ims_wifi_calling_cb(const struct ofono_error *error, void *data)
+{
+	struct ofono_ims *ims = data;
+	dbus_bool_t value = ims->wifi_calling;
+
+	/* The property appears once the driver has accepted it */
+	if (error->type != OFONO_ERROR_TYPE_NO_ERROR ||
+					ims->wifi_calling_supported)
+		return;
+
+	ims->wifi_calling_supported = TRUE;
+	ofono_dbus_signal_property_changed(ofono_dbus_get_connection(),
+				__ofono_atom_get_path(ims->atom),
+				OFONO_IMS_INTERFACE, WIFI_CALLING_PROP,
+				DBUS_TYPE_BOOLEAN, &value);
+}
+
+static void ims_apply_wifi_calling(struct ofono_ims *ims)
+{
+	if (ims->driver && ims->driver->set_wifi_calling)
+		ims_call_submit(ims, ims_call_submit_set_wifi_calling,
+				CALLBACK(ims_wifi_calling_cb), ims);
+}
+
 static void ims_apply_settings(struct ofono_ims *ims)
 {
 	char* str;
+	GError *error = NULL;
 
 	if (!ims->settings)
 		return;
+
+	ims->wifi_calling = g_key_file_get_boolean(ims->settings,
+				SETTINGS_GROUP, WIFI_CALLING_KEY, &error);
+	if (error) {
+		ims->wifi_calling = TRUE;
+		g_error_free(error);
+	}
+	ims_apply_wifi_calling(ims);
 
 	str = g_key_file_get_string(ims->settings, SETTINGS_GROUP,
 						REGISTRATION_KEY, NULL);
@@ -406,6 +458,16 @@ static DBusMessage *ims_get_properties(DBusConnection *conn,
 					DBUS_TYPE_BOOLEAN, &value);
 	}
 
+	if (ims->wifi_calling_supported) {
+		value = ims->wifi_calling;
+		ofono_dbus_dict_append(&dict, WIFI_CALLING_PROP,
+					DBUS_TYPE_BOOLEAN, &value);
+
+		value = ims_over_wlan(ims->reg_info, ims->ext_info);
+		ofono_dbus_dict_append(&dict, WIFI_CALLING_ACTIVE_PROP,
+					DBUS_TYPE_BOOLEAN, &value);
+	}
+
 	dbus_message_iter_close_container(&iter, &dict);
 
 	return reply;
@@ -450,6 +512,35 @@ static DBusMessage *ims_set_property(DBusConnection *conn,
 			ims_registration_check(ims);
 			return dbus_message_new_method_return(msg);
 		}
+	} else if (!g_strcmp0(property, WIFI_CALLING_PROP)) {
+		dbus_bool_t value;
+
+		if (!ims->wifi_calling_supported)
+			return __ofono_error_not_implemented(msg);
+
+		if (dbus_message_iter_get_arg_type(&var) != DBUS_TYPE_BOOLEAN)
+			return __ofono_error_invalid_args(msg);
+
+		dbus_message_iter_get_basic(&var, &value);
+
+		if (ims->wifi_calling != value) {
+			ims->wifi_calling = value;
+
+			if (ims->settings) {
+				g_key_file_set_boolean(ims->settings,
+					SETTINGS_GROUP, WIFI_CALLING_KEY, value);
+				storage_sync(ims->imsi, SETTINGS_STORE,
+							ims->settings);
+			}
+
+			ims_apply_wifi_calling(ims);
+			ofono_dbus_signal_property_changed(conn,
+				__ofono_atom_get_path(ims->atom),
+				OFONO_IMS_INTERFACE, WIFI_CALLING_PROP,
+				DBUS_TYPE_BOOLEAN, &value);
+		}
+
+		return dbus_message_new_method_return(msg);
 	}
 
 	return __ofono_error_invalid_args(msg);
@@ -512,6 +603,7 @@ void ofono_ims_status_notify(struct ofono_ims *ims, int reg_info, int ext_info)
 {
 	dbus_bool_t new_reg_info;
 	dbus_bool_t new_voice_capable, new_sms_capable;
+	dbus_bool_t over_wlan;
 
 	if (ims == NULL)
 		return;
@@ -536,6 +628,14 @@ void ofono_ims_status_notify(struct ofono_ims *ims, int reg_info, int ext_info)
 	ims_set_sms_capable(ims, new_sms_capable);
 
 skip:
+	over_wlan = ims_over_wlan(reg_info, ext_info);
+	if (ims->wifi_calling_supported &&
+		over_wlan != ims_over_wlan(ims->reg_info, ims->ext_info))
+		ofono_dbus_signal_property_changed(ofono_dbus_get_connection(),
+				__ofono_atom_get_path(ims->atom),
+				OFONO_IMS_INTERFACE, WIFI_CALLING_ACTIVE_PROP,
+				DBUS_TYPE_BOOLEAN, &over_wlan);
+
 	ims->reg_info = reg_info;
 	ims->ext_info = ext_info;
 	ims_registration_check(ims);
@@ -679,6 +779,7 @@ struct ofono_ims *ofono_ims_create(struct ofono_modem *modem,
 	ims->ext_info = -1;
 	ims->reg_strategy = IMS_REG_DEFAULT;
 	ims->reg_check_pending = TRUE;
+	ims->wifi_calling = TRUE;
 	ims->q = __ofono_dbus_queue_new();
 
 	for (l = g_drivers; l; l = l->next) {

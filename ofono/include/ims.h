@@ -34,6 +34,7 @@ struct ofono_ims;
 /* ext_info bits */
 #define OFONO_IMS_VOICE_CAPABLE 0x1
 #define OFONO_IMS_SMS_CAPABLE 0x4
+#define OFONO_IMS_OVER_WLAN 0x100 /* Since 1.29+git18 */
 
 typedef void (*ofono_ims_register_cb_t)(const struct ofono_error *error,
 						void *data);
@@ -51,6 +52,9 @@ struct ofono_ims_driver {
 				ofono_ims_register_cb_t cb, void *data);
 	void (*registration_status)(struct ofono_ims *ims,
 				ofono_ims_status_cb_t cb, void *data);
+	/* Since 1.29+git18 */
+	void (*set_wifi_calling)(struct ofono_ims *ims, ofono_bool_t enable,
+				ofono_ims_register_cb_t cb, void *data);
 };
 
 void ofono_ims_status_notify(struct ofono_ims *ims, int reg_info,

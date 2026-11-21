@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <utime.h>
 
 #include <glib.h>
 #include <glib/gprintf.h>
@@ -132,12 +133,163 @@ static void test_serialize_assembly(void)
 	sms_assembly_free(assembly);
 }
 
+static void test_assembly_expire_on_load(void)
+{
+	const char *imsi = "1235";
+	unsigned char pdu[176];
+	long pdu_len;
+	struct sms sms;
+	struct sms_assembly *assembly;
+	guint16 ref;
+	guint8 max;
+	guint8 seq;
+	GSList *l;
+	time_t now = time(NULL);
+	time_t old = now - SMS_ASSEMBLY_EXPIRY_SECONDS - 60;
+	struct utimbuf times = {
+		.actime = old,
+		.modtime = old,
+	};
+	DECLARE_SMS_ADDR_STR(straddr);
+	char *path;
+
+	/*
+	 * Remove data left by a previous failed test run.
+	 */
+	assembly = sms_assembly_new(imsi);
+	sms_assembly_expire(assembly, now + 1);
+	sms_assembly_free(assembly);
+
+	assembly = sms_assembly_new(imsi);
+
+	decode_hex_own_buf(assembly_pdu1, -1, &pdu_len, 0, pdu);
+	sms_decode(pdu, pdu_len, FALSE, assembly_pdu_len1, &sms);
+
+	sms_extract_concatenation(&sms, &ref, &max, &seq);
+	l = sms_assembly_add_fragment(assembly, &sms, now,
+					&sms.deliver.oaddr, ref, max, seq);
+	g_assert(l == NULL);
+	g_assert_cmpuint(g_slist_length(assembly->assembly_list), ==, 1);
+
+	g_assert(sms_address_to_hex_string(&sms.deliver.oaddr, straddr));
+
+	path = g_strdup_printf(STORAGEDIR "/%s/sms_assembly/%s-%u-%u/%03u",
+				imsi, straddr, ref, max, seq);
+	g_assert_cmpint(utime(path, &times), ==, 0);
+	g_free(path);
+
+	sms_assembly_free(assembly);
+
+	/*
+	 * sms_assembly_new() must expire the stale assembly immediately
+	 * after loading it from persistent storage.
+	 */
+	assembly = sms_assembly_new(imsi);
+	g_assert_cmpuint(g_slist_length(assembly->assembly_list), ==, 0);
+	sms_assembly_free(assembly);
+}
+
+static void test_assembly_stale_collision(void)
+{
+	unsigned char pdu[176];
+	long pdu_len;
+	struct sms sms;
+	struct sms_assembly *assembly = sms_assembly_new(NULL);
+	struct sms_assembly_node *node;
+	guint16 ref;
+	guint8 max;
+	guint8 seq;
+	GSList *l;
+	time_t now = time(NULL);
+	guint8 old_max;
+
+	decode_hex_own_buf(assembly_pdu1, -1, &pdu_len, 0, pdu);
+	sms_decode(pdu, pdu_len, FALSE, assembly_pdu_len1, &sms);
+	sms_extract_concatenation(&sms, &ref, &max, &seq);
+
+	old_max = max + 1;
+
+	l = sms_assembly_add_fragment(assembly, &sms,
+					now - SMS_ASSEMBLY_EXPIRY_SECONDS - 60,
+					&sms.deliver.oaddr,
+					ref, old_max, seq);
+	g_assert(l == NULL);
+
+	node = assembly->assembly_list->data;
+	g_assert_cmpuint(node->max_fragments, ==, old_max);
+
+	/*
+	 * Reuse the same sender and reference with a different fragment
+	 * count. Since the existing assembly is stale, it must be discarded
+	 * and this fragment must start a new assembly.
+	 */
+	l = sms_assembly_add_fragment(assembly, &sms, now,
+					&sms.deliver.oaddr, ref, max, seq);
+	g_assert(l == NULL);
+	g_assert_cmpuint(g_slist_length(assembly->assembly_list), ==, 1);
+
+	node = assembly->assembly_list->data;
+	g_assert_cmpuint(node->ref, ==, ref);
+	g_assert_cmpuint(node->max_fragments, ==, max);
+	g_assert_cmpuint(node->num_fragments, ==, 1);
+
+	sms_assembly_free(assembly);
+}
+
+static void test_assembly_fresh_collision(void)
+{
+	unsigned char pdu[176];
+	long pdu_len;
+	struct sms sms;
+	struct sms_assembly *assembly = sms_assembly_new(NULL);
+	struct sms_assembly_node *node;
+	guint16 ref;
+	guint8 max;
+	guint8 seq;
+	GSList *l;
+	time_t now = time(NULL);
+	guint8 old_max;
+
+	decode_hex_own_buf(assembly_pdu1, -1, &pdu_len, 0, pdu);
+	sms_decode(pdu, pdu_len, FALSE, assembly_pdu_len1, &sms);
+	sms_extract_concatenation(&sms, &ref, &max, &seq);
+
+	old_max = max + 1;
+
+	l = sms_assembly_add_fragment(assembly, &sms, now - 60 * 60,
+					&sms.deliver.oaddr,
+					ref, old_max, seq);
+	g_assert(l == NULL);
+
+	/*
+	 * A recent assembly must win the collision. The new fragment is
+	 * ignored and the existing assembly remains unchanged.
+	 */
+	l = sms_assembly_add_fragment(assembly, &sms, now,
+					&sms.deliver.oaddr, ref, max, seq);
+	g_assert(l == NULL);
+	g_assert_cmpuint(g_slist_length(assembly->assembly_list), ==, 1);
+
+	node = assembly->assembly_list->data;
+	g_assert_cmpuint(node->ref, ==, ref);
+	g_assert_cmpuint(node->max_fragments, ==, old_max);
+	g_assert_cmpuint(node->num_fragments, ==, 1);
+
+	sms_assembly_free(assembly);
+}
+
 int main(int argc, char **argv)
 {
 	g_test_init(&argc, &argv, NULL);
 
 	g_test_add_func("/testsms/Test SMS Assembly Serialize",
 			test_serialize_assembly);
+	g_test_add_func("/testsms/Test SMS Assembly Expire On Load",
+			test_assembly_expire_on_load);
+	g_test_add_func("/testsms/Test SMS Assembly Stale Collision",
+			test_assembly_stale_collision);
+	g_test_add_func("/testsms/Test SMS Assembly Fresh Collision",
+			test_assembly_fresh_collision);
 
 	return g_test_run();
 }

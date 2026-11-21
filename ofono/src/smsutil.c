@@ -32,6 +32,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
+#include <time.h>
 
 #include <glib.h>
 
@@ -2521,18 +2523,19 @@ static gboolean sms_assembly_store(struct sms_assembly *assembly,
 	return TRUE;
 }
 
-static void sms_assembly_backup_free(struct sms_assembly *assembly,
+static gboolean sms_assembly_backup_free(struct sms_assembly *assembly,
 					struct sms_assembly_node *node)
 {
 	char *path;
 	int seq;
+	gboolean success = TRUE;
 	DECLARE_SMS_ADDR_STR(straddr);
 
 	if (assembly->imsi == NULL)
-		return;
+		return TRUE;
 
 	if (sms_address_to_hex_string(&node->addr, straddr) == FALSE)
-		return;
+		return FALSE;
 
 	for (seq = 1; seq <= node->max_fragments; seq++) {
 		int offset = seq / 32;
@@ -2542,15 +2545,21 @@ static void sms_assembly_backup_free(struct sms_assembly *assembly,
 			path = g_strdup_printf(SMS_BACKUP_PATH_FILE,
 					assembly->imsi, straddr,
 					node->ref, node->max_fragments, seq);
-			unlink(path);
+			if (unlink(path) < 0 && errno != ENOENT)
+				success = FALSE;
+
 			g_free(path);
 		}
 	}
 
 	path = g_strdup_printf(SMS_BACKUP_PATH_DIR, assembly->imsi, straddr,
 				node->ref, node->max_fragments);
-	rmdir(path);
+	if (rmdir(path) < 0 && errno != ENOENT)
+		success = FALSE;
+
 	g_free(path);
+
+	return success;
 }
 
 struct sms_assembly *sms_assembly_new(const char *imsi)
@@ -2578,6 +2587,9 @@ struct sms_assembly *sms_assembly_new(const char *imsi)
 		}
 
 		free(entries);
+
+		sms_assembly_expire(ret,
+					time(NULL) - SMS_ASSEMBLY_EXPIRY_SECONDS);
 	}
 
 	return ret;
@@ -2642,11 +2654,41 @@ static GSList *sms_assembly_add_fragment_backup(struct sms_assembly *assembly,
 			continue;
 
 		/*
-		 * Message Reference and address the same, but max is not
-		 * ignore the SMS completely
+		 * A concatenation reference can be reused. If an existing
+		 * assembly with the same sender and reference has a different
+		 * fragment count, discard it only if it is older than the
+		 * maximum expected SMSC delivery window.
 		 */
-		if (max != node->max_fragments)
+		if (max != node->max_fragments) {
+			if (node->ts <= ts - SMS_ASSEMBLY_EXPIRY_SECONDS) {
+				if (!sms_assembly_backup_free(assembly, node)) {
+					g_warning("Failed to remove stale SMS assembly: "
+							"sender=%s ref=%u old-max=%u "
+							"new-max=%u",
+							addr->address, ref,
+							node->max_fragments, max);
+					return NULL;
+				}
+
+				g_slist_free_full(node->fragment_list, g_free);
+
+				if (prev)
+					prev->next = l->next;
+				else
+					assembly->assembly_list = l->next;
+
+				g_free(node);
+				node = NULL;
+				g_slist_free_1(l);
+				break;
+			}
+
+			g_message("SMS assembly collision: sender=%s ref=%u "
+					"old-max=%u new-max=%u",
+					addr->address, ref,
+					node->max_fragments, max);
 			return NULL;
+		}
 
 		/* Now check if we already have this seq number */
 		if (node->bitmap[offset] & bit)

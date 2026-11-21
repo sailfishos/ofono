@@ -27,6 +27,7 @@
 #define CBS_PAGE_SIZE 82
 #define CBS_MAX_TOPIC 9999
 #define SMS_MSGID_LEN 20
+#define SMS_ASSEMBLY_EXPIRY_SECONDS (73 * 60 * 60)
 
 enum sms_type {
 	SMS_TYPE_DELIVER = 0,

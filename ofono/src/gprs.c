@@ -37,6 +37,9 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <linux/fib_rules.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 
 #include <glib.h>
 #include <gdbus.h>
@@ -61,6 +64,9 @@
 #define MAX_MESSAGE_CENTER_LENGTH 255
 #define MAX_CONTEXTS 256
 #define SUSPEND_TIMEOUT 8
+#define MMS_ROUTE_TABLE_BASE 3500
+#define MMS_ROUTE_RULE_PRIORITY 1000
+#define MMS_ROUTE_NL_TIMEOUT_SECS 1
 
 struct ofono_gprs {
 	GSList *contexts;
@@ -784,12 +790,160 @@ static void pri_setproxy(const char *interface, const char *proxy)
 	close(sk);
 }
 
+static gboolean pri_mms_needs_source_route(const struct pri_context *ctx)
+{
+	return ctx->proxy_host && inet_addr(ctx->proxy_host) == INADDR_NONE;
+}
+
+static void pri_nl_attr(struct nlmsghdr *msg, int type, const void *data,
+								int len)
+{
+	struct rtattr *rta = (struct rtattr *) ((char *) msg +
+						NLMSG_ALIGN(msg->nlmsg_len));
+
+	rta->rta_type = type;
+	rta->rta_len = RTA_LENGTH(len);
+	memcpy(RTA_DATA(rta), data, len);
+	msg->nlmsg_len = NLMSG_ALIGN(msg->nlmsg_len) + RTA_ALIGN(rta->rta_len);
+}
+
+static void pri_nl_request(int sk, struct nlmsghdr *msg, int ignored_error)
+{
+	static uint32_t seq;
+	struct {
+		struct nlmsghdr hdr;
+		struct nlmsgerr err;
+	} ack;
+	ssize_t len = -1;
+	int error;
+
+	msg->nlmsg_seq = ++seq;
+
+	if (send(sk, msg, msg->nlmsg_len, 0) < 0 ||
+			(len = recv(sk, &ack, sizeof(ack), 0)) < 0)
+		error = errno;
+	else if (len < (ssize_t) sizeof(ack) ||
+			ack.hdr.nlmsg_type != NLMSG_ERROR ||
+			ack.hdr.nlmsg_seq != seq)
+		error = EPROTO;
+	else
+		error = -ack.err.error;
+
+	if (error && error != ignored_error)
+		ofono_error("MMS routing request %u failed: %s",
+					msg->nlmsg_type, strerror(error));
+}
+
+/*
+ * A host route can only be added for an MMS proxy given as an IPv4
+ * address. mms-engine binds its socket to the address of the MMS context,
+ * so route everything from that address via the MMS interface instead.
+ */
+static void pri_set_mms_source_route(const char *interface,
+					const char *address, gboolean add)
+{
+	const uint32_t ifindex = interface ? if_nametoindex(interface) : 0;
+	const uint32_t table = MMS_ROUTE_TABLE_BASE + ifindex;
+	const uint32_t priority = MMS_ROUTE_RULE_PRIORITY;
+	const struct timeval timeout = { MMS_ROUTE_NL_TIMEOUT_SECS, 0 };
+	struct {
+		struct nlmsghdr hdr;
+		struct rtmsg rtm;
+		char attrs[64];
+	} route;
+	struct {
+		struct nlmsghdr hdr;
+		struct fib_rule_hdr frh;
+		char attrs[64];
+	} rule;
+	in_addr_t src;
+	int sk;
+
+	if (ifindex == 0 || address == NULL)
+		return;
+
+	src = inet_addr(address);
+	if (src == INADDR_NONE)
+		return;
+
+	sk = socket(PF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+	if (sk < 0) {
+		ofono_error("Failed to open netlink socket: %s",
+							strerror(errno));
+		return;
+	}
+
+	if (setsockopt(sk, SOL_SOCKET, SO_RCVTIMEO, &timeout,
+						sizeof(timeout)) < 0)
+		ofono_warn("Failed to set netlink timeout: %s",
+							strerror(errno));
+
+	memset(&route, 0, sizeof(route));
+	route.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(route.rtm));
+	route.hdr.nlmsg_type = add ? RTM_NEWROUTE : RTM_DELROUTE;
+	route.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK |
+				(add ? (NLM_F_CREATE | NLM_F_REPLACE) : 0);
+	route.rtm.rtm_family = AF_INET;
+	route.rtm.rtm_protocol = RTPROT_STATIC;
+	route.rtm.rtm_scope = RT_SCOPE_LINK;
+	route.rtm.rtm_type = RTN_UNICAST;
+	pri_nl_attr(&route.hdr, RTA_TABLE, &table, sizeof(table));
+	pri_nl_attr(&route.hdr, RTA_OIF, &ifindex, sizeof(ifindex));
+
+	memset(&rule, 0, sizeof(rule));
+	rule.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(rule.frh));
+	rule.hdr.nlmsg_type = add ? RTM_NEWRULE : RTM_DELRULE;
+	rule.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK |
+				(add ? (NLM_F_CREATE | NLM_F_EXCL) : 0);
+	rule.frh.family = AF_INET;
+	rule.frh.src_len = 32;
+	rule.frh.action = FR_ACT_TO_TBL;
+	pri_nl_attr(&rule.hdr, FRA_TABLE, &table, sizeof(table));
+	pri_nl_attr(&rule.hdr, FRA_PRIORITY, &priority, sizeof(priority));
+	pri_nl_attr(&rule.hdr, FRA_SRC, &src, sizeof(src));
+
+	/* The kernel drops the route when the interface goes down */
+	if (add) {
+		pri_nl_request(sk, &route.hdr, 0);
+		pri_nl_request(sk, &rule.hdr, EEXIST);
+	} else {
+		pri_nl_request(sk, &rule.hdr, ENOENT);
+		pri_nl_request(sk, &route.hdr, ESRCH);
+	}
+
+	close(sk);
+}
+
+static gboolean pri_interface_used_elsewhere(struct pri_context *self,
+						const char *interface)
+{
+	GSList *l;
+
+	if (interface == NULL)
+		return FALSE;
+
+	for (l = self->gprs->contexts; l; l = l->next) {
+		struct pri_context *other = l->data;
+		const char *other_if;
+
+		if (other == self || !other->active || !other->context_driver)
+			continue;
+
+		other_if = other->context_driver->interface;
+		if (other_if && !strcmp(other_if, interface))
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
 static void pri_reset_context_settings(struct pri_context *ctx)
 {
 	struct context_settings *settings;
 	const char *interface;
 	gboolean signal_ipv4;
 	gboolean signal_ipv6;
+	gboolean shared_interface;
 
 	if (ctx->context_driver == NULL)
 		return;
@@ -799,20 +953,32 @@ static void pri_reset_context_settings(struct pri_context *ctx)
 
 	signal_ipv4 = settings->ipv4 != NULL;
 	signal_ipv6 = settings->ipv6 != NULL;
+	/*
+	 * A second context can be attached to a data call that is already
+	 * up for the same access point. Taking the interface down here
+	 * would drop that other context.
+	 */
+	shared_interface = pri_interface_used_elsewhere(ctx, interface);
+
+	if (ctx->type == OFONO_GPRS_CONTEXT_TYPE_MMS && settings->ipv4 &&
+					pri_mms_needs_source_route(ctx))
+		pri_set_mms_source_route(interface, settings->ipv4->ip, FALSE);
 
 	context_settings_free(settings);
 
 	pri_context_signal_settings(ctx, signal_ipv4, signal_ipv6);
 
 	if (ctx->type == OFONO_GPRS_CONTEXT_TYPE_MMS) {
-		pri_set_ipv4_addr(interface, NULL);
+		if (!shared_interface)
+			pri_set_ipv4_addr(interface, NULL);
 
 		g_free(ctx->proxy_host);
 		ctx->proxy_host = NULL;
 		ctx->proxy_port = 0;
 	}
 
-	pri_ifupdown(interface, FALSE);
+	if (!shared_interface)
+		pri_ifupdown(interface, FALSE);
 }
 
 static void pri_update_mms_context_settings(struct pri_context *ctx)
@@ -829,7 +995,10 @@ static void pri_update_mms_context_settings(struct pri_context *ctx)
 
 	pri_set_ipv4_addr(gc->interface, settings->ipv4->ip);
 
-	if (ctx->proxy_host)
+	if (pri_mms_needs_source_route(ctx))
+		pri_set_mms_source_route(gc->interface, settings->ipv4->ip,
+									TRUE);
+	else if (ctx->proxy_host)
 		pri_setproxy(gc->interface, ctx->proxy_host);
 }
 

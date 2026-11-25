@@ -30,6 +30,7 @@
 
 struct ofono_mtu_limit {
 	int max_mtu;
+	int saved_mtu;
 	char *ifname;
 	void *buf;
 	int bufsize;
@@ -50,6 +51,8 @@ static void mtu_limit_apply(struct ofono_mtu_limit *self)
 					ifr.ifr_mtu > self->max_mtu) {
 			DBG("%s mtu %d => %d", self->ifname, ifr.ifr_mtu,
 								self->max_mtu);
+			if (ifr.ifr_mtu > self->max_mtu)
+				self->saved_mtu = ifr.ifr_mtu;
 			ifr.ifr_mtu = self->max_mtu;
 			if (ioctl(fd, SIOCSIFMTU, &ifr) < 0) {
 				ofono_error("Failed to set MTU");
@@ -170,6 +173,32 @@ static gboolean mtu_limit_start(struct ofono_mtu_limit *self)
 	return FALSE;
 }
 
+/*
+ * The interface may still be in use after the limit is released, e.g.
+ * when the MMS context shared the data call of the internet context.
+ */
+static void mtu_limit_restore(struct ofono_mtu_limit *self)
+{
+	int fd;
+
+	if (!self->ifname || !self->saved_mtu)
+		return;
+
+	fd = socket(PF_INET, SOCK_DGRAM, 0);
+	if (fd >= 0) {
+		struct ifreq ifr;
+
+		memset(&ifr, 0, sizeof(ifr));
+		strncpy(ifr.ifr_name, self->ifname, IFNAMSIZ);
+		ifr.ifr_mtu = self->saved_mtu;
+		DBG("%s mtu => %d", self->ifname, self->saved_mtu);
+		if (ioctl(fd, SIOCSIFMTU, &ifr) < 0)
+			ofono_error("Failed to restore MTU");
+		close(fd);
+	}
+	self->saved_mtu = 0;
+}
+
 static void mtu_limit_stop(struct ofono_mtu_limit *self)
 {
 	if (self->io_watch) {
@@ -202,6 +231,7 @@ void ofono_mtu_limit_free(struct ofono_mtu_limit *self)
 {
 	if (self) {
 		mtu_limit_stop(self);
+		mtu_limit_restore(self);
 		g_free(self->ifname);
 		g_free(self->buf);
 		g_free(self);
@@ -211,6 +241,8 @@ void ofono_mtu_limit_free(struct ofono_mtu_limit *self)
 void ofono_mtu_limit_set_ifname(struct ofono_mtu_limit *self, const char *name)
 {
 	if (self && g_strcmp0(self->ifname, name)) {
+		mtu_limit_stop(self);
+		mtu_limit_restore(self);
 		g_free(self->ifname);
 		if (name) {
 			self->ifname = g_strdup(name);
@@ -218,7 +250,6 @@ void ofono_mtu_limit_set_ifname(struct ofono_mtu_limit *self, const char *name)
 			mtu_limit_start(self);
 		} else {
 			self->ifname = NULL;
-			mtu_limit_stop(self);
 		}
 	}
 }

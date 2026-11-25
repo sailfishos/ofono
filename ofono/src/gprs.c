@@ -784,12 +784,36 @@ static void pri_setproxy(const char *interface, const char *proxy)
 	close(sk);
 }
 
+static gboolean pri_interface_used_elsewhere(struct pri_context *self,
+						const char *interface)
+{
+	GSList *l;
+
+	if (interface == NULL)
+		return FALSE;
+
+	for (l = self->gprs->contexts; l; l = l->next) {
+		struct pri_context *other = l->data;
+		const char *other_if;
+
+		if (other == self || !other->active || !other->context_driver)
+			continue;
+
+		other_if = other->context_driver->interface;
+		if (other_if && !strcmp(other_if, interface))
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
 static void pri_reset_context_settings(struct pri_context *ctx)
 {
 	struct context_settings *settings;
 	const char *interface;
 	gboolean signal_ipv4;
 	gboolean signal_ipv6;
+	gboolean shared_interface;
 
 	if (ctx->context_driver == NULL)
 		return;
@@ -799,20 +823,28 @@ static void pri_reset_context_settings(struct pri_context *ctx)
 
 	signal_ipv4 = settings->ipv4 != NULL;
 	signal_ipv6 = settings->ipv6 != NULL;
+	/*
+	 * A second context can be attached to a data call that is already
+	 * up for the same access point. Taking the interface down here
+	 * would drop that other context.
+	 */
+	shared_interface = pri_interface_used_elsewhere(ctx, interface);
 
 	context_settings_free(settings);
 
 	pri_context_signal_settings(ctx, signal_ipv4, signal_ipv6);
 
 	if (ctx->type == OFONO_GPRS_CONTEXT_TYPE_MMS) {
-		pri_set_ipv4_addr(interface, NULL);
+		if (!shared_interface)
+			pri_set_ipv4_addr(interface, NULL);
 
 		g_free(ctx->proxy_host);
 		ctx->proxy_host = NULL;
 		ctx->proxy_port = 0;
 	}
 
-	pri_ifupdown(interface, FALSE);
+	if (!shared_interface)
+		pri_ifupdown(interface, FALSE);
 }
 
 static void pri_update_mms_context_settings(struct pri_context *ctx)
